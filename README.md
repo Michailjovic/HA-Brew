@@ -4,7 +4,9 @@ Keep homebrew apps on your smart TVs up to date from Home Assistant.
 
 HA-Brew downloads new releases of TV apps from GitHub, re-signs them with **your own Samsung certificate** and installs them over the network. You get one native `update` entity per app, so updates show up in *Settings → Updates*, on dashboards, and in automations (for example, "install when the TV is on but nothing is playing").
 
-> **Status: early preview (0.1.x).** Only Samsung Tizen TVs are supported for now. LG webOS support, an app catalog and a dedicated sidebar panel are planned.
+> **Status: early preview (0.2.x).** Only Samsung Tizen TVs are supported for now. LG webOS support is planned.
+
+![HA-Brew panel](docs/panel.png)
 
 ## How it works
 
@@ -34,6 +36,16 @@ No Tizen Studio, no PC and no extra add-on are needed. Everything runs inside Ho
 1. In HACS, open the menu and choose *Custom repositories*. Add this repository's URL with type **Integration**.
 2. Install **HA-Brew** and restart Home Assistant.
 3. Go to *Settings → Devices & services → Add integration → HA-Brew*, then enter the TV's IP address.
+
+## The HA-Brew panel
+
+HA-Brew adds a **HA-Brew** entry to the sidebar (admins only):
+
+- **TVs**: every app on each TV with the installed and the available version. Install, update, reinstall or remove managed apps. Apps that were installed some other way can be taken over with **Manage**, if the catalog has them.
+- **Catalog**: about 200 community Tizen web apps from the [Apps2Samsung catalog](https://github.com/Apps2Samsung/tizen-community-packages), with search, categories, Tizen version requirements and warnings (root, closed source, self-updating, Partner certificate). Add any of them to a TV and install it right away. Downloads are checked against the catalog's SHA-256.
+- **Certificates**: the signing certificates of each TV, their expiry and which apps use them.
+
+You can still add apps from any GitHub repository, either in the panel (**Add from GitHub**) or on the integration page.
 
 ## Setup
 
@@ -82,7 +94,9 @@ mode: single
 ## Roadmap
 
 - [x] Samsung Tizen: sdb transport, package signing, update entities
-- [ ] App catalog (Apps2Samsung community packages) and a sidebar panel to browse and install apps
+- [x] App catalog (Apps2Samsung community packages) and a sidebar panel to browse and install apps
+- [ ] Native `.tpk` packages
+- [ ] Creating Samsung certificates from Home Assistant
 - [ ] LG webOS (Developer Mode: SSH install, automatic Developer Mode renewal)
 - [ ] Certificate renewal helper
 

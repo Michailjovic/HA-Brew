@@ -45,7 +45,7 @@
         },
         "p12": {
           "title": "PKCS#12 certificate pair",
-          "description": "Upload `author.p12` and `distributor.p12` (Apps2Samsung: `%APPDATA%\\Apps2Samsung\\Certificate\\<profile>`, password is in `password.txt`).",
+          "description": "Upload `author.p12` and `distributor.p12` (Apps2Samsung: `%APPDATA%\\Apps2Samsung\\Certificate\\` (one folder per profile), password is in `password.txt`).",
           "data": {
             "author_file": "author.p12",
             "distributor_file": "distributor.p12",
@@ -144,6 +144,18 @@
     },
     "tv_unreachable": {
       "message": "The TV is not reachable. Turn it on and make sure Developer Mode is enabled ({error})."
+    },
+    "install_running": {
+      "message": "An installation of this app is already running."
+    },
+    "unknown_app": {
+      "message": "Unknown app."
+    },
+    "download_failed": {
+      "message": "The package could not be downloaded: {error}"
+    },
+    "checksum_mismatch": {
+      "message": "The downloaded package does not match the catalog checksum and was not installed."
     }
   }
 }

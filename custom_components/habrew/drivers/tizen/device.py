@@ -40,6 +40,7 @@ class TizenApp:
     package_id: str
     title: str
     version: str
+    app_type: str = ""
 
 
 class TizenInstallError(Exception):
@@ -75,6 +76,7 @@ def parse_vd_applist(output: str) -> list[TizenApp]:
                 package_id=package_id,
                 title=fields.get("app_title", ""),
                 version=fields.get("app_version", ""),
+                app_type=fields.get("type", ""),
             )
         )
     return apps

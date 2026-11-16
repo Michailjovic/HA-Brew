@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "habrew"
-VERSION: Final = "0.1.0"
+VERSION: Final = "0.2.0"
 USER_AGENT: Final = f"HA-Brew/{VERSION}"
 
 PLATFORM_TIZEN: Final = "tizen"
@@ -30,6 +30,10 @@ CONF_AUTHOR_SERIAL: Final = "author_serial"
 CONF_EXPIRES: Final = "expires"
 
 # app subentry
+CONF_SOURCE: Final = "source"
+SOURCE_GITHUB: Final = "github"
+SOURCE_CATALOG: Final = "catalog"
+CONF_CATALOG_KEY: Final = "catalog_key"
 CONF_PRESET: Final = "preset"
 PRESET_CUSTOM: Final = "custom"
 CONF_REPO: Final = "repo"
@@ -41,3 +45,7 @@ UPDATE_INTERVAL: Final = timedelta(minutes=30)
 TV_TIMEOUT: Final = 6
 
 STORAGE_VERSION: Final = 1
+
+PANEL_URL: Final = "ha-brew"
+PANEL_COMPONENT: Final = "ha-brew-panel"
+STATIC_URL: Final = "/habrew_static"

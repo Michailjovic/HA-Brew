@@ -52,9 +52,11 @@ from .const import (
     CONF_PRERELEASES,
     CONF_PRESET,
     CONF_REPO,
+    CONF_SOURCE,
     DOMAIN,
     PLATFORM_TIZEN,
     PRESET_CUSTOM,
+    SOURCE_GITHUB,
     SUBENTRY_APP,
     SUBENTRY_CERTIFICATE,
     USER_AGENT,
@@ -331,6 +333,7 @@ class AppSubentryFlow(ConfigSubentryFlow):
         return self.async_create_entry(
             title=name,
             data={
+                CONF_SOURCE: SOURCE_GITHUB,
                 CONF_PRESET: self._base.get(CONF_PRESET, PRESET_CUSTOM),
                 CONF_REPO: repo,
                 CONF_ASSET_PATTERN: pattern,

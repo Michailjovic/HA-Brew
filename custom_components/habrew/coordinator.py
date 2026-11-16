@@ -1,11 +1,13 @@
-"""Coordinator: keeps track of installed apps on the TV and the newest GitHub releases."""
+"""Coordinator: keeps track of installed apps on the TV and the newest available packages."""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -18,13 +20,17 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from . import certificates
+from .catalog import CatalogClient, CatalogError
 from .const import (
     CONF_ASSET_PATTERN,
+    CONF_CATALOG_KEY,
     CONF_CERT_ID,
     CONF_CERTIFICATE,
     CONF_PRERELEASES,
     CONF_REPO,
+    CONF_SOURCE,
     DOMAIN,
+    SOURCE_CATALOG,
     STORAGE_VERSION,
     SUBENTRY_APP,
     TV_TIMEOUT,
@@ -62,6 +68,13 @@ class AppRelease:
     app_id: str
     name: str
     required_version: str
+    sha256: str = ""
+    icon: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> AppRelease:
+        names = {f.name for f in fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in names})
 
 
 @dataclass
@@ -74,8 +87,16 @@ class HabrewData:
     errors: dict[str, str] = field(default_factory=dict)  # by subentry id
 
 
+def get_catalog_client(hass: HomeAssistant) -> CatalogClient:
+    """One catalog cache for all TVs."""
+    domain_data = hass.data.setdefault(DOMAIN, {})
+    if "catalog" not in domain_data:
+        domain_data["catalog"] = CatalogClient(async_get_clientsession(hass), USER_AGENT)
+    return domain_data["catalog"]
+
+
 class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
-    """Polls one TV and the GitHub repositories of its apps."""
+    """Polls one TV, GitHub and the catalog for its apps."""
 
     config_entry: HabrewConfigEntry
 
@@ -85,9 +106,11 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         )
         self.device = TizenDevice(entry.data[CONF_HOST])
         self.github = GitHubClient(async_get_clientsession(hass), USER_AGENT)
+        self.catalog = get_catalog_client(hass)
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._cache_dir = certificates.cache_dir(hass, entry.entry_id)
         self.tv_lock = asyncio.Lock()
+        self.progress: dict[str, int] = {}  # subentry id -> percent while installing
         self.data = HabrewData()
 
     # ------------------------------------------------------------------ helpers
@@ -110,10 +133,16 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
     async def async_load(self) -> None:
         """Restore the last known state so entities have values while the TV is off."""
         stored = await self._store.async_load() or {}
+        app_names = {f.name for f in fields(TizenApp)}
         self.data = HabrewData(
             reachable=False,
-            apps={k: TizenApp(**v) for k, v in stored.get("apps", {}).items()},
-            releases={k: AppRelease(**v) for k, v in stored.get("releases", {}).items() if k in self.app_subentries},
+            apps={
+                k: TizenApp(**{kk: vv for kk, vv in v.items() if kk in app_names})
+                for k, v in stored.get("apps", {}).items()
+            },
+            releases={
+                k: AppRelease.from_dict(v) for k, v in stored.get("releases", {}).items() if k in self.app_subentries
+            },
         )
 
     def _save(self) -> None:
@@ -138,13 +167,28 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             await self._refresh_tv(data)
         for subentry_id, subentry in self.app_subentries.items():
             try:
-                await self._refresh_release(data, subentry_id, subentry)
-            except (GitHubError, ValueError) as err:
+                if subentry.data.get(CONF_SOURCE) == SOURCE_CATALOG:
+                    await self._refresh_catalog_release(data, subentry_id, subentry)
+                else:
+                    await self._refresh_github_release(data, subentry_id, subentry)
+            except (GitHubError, CatalogError, ValueError) as err:
                 data.errors[subentry_id] = str(err)
                 _LOGGER.warning("%s: %s", subentry.title, err)
         self.data = data
         self._save()
         return data
+
+    async def async_refresh_tv(self) -> None:
+        """Re-read the app list from the TV only (used by the panel)."""
+        data = HabrewData(
+            reachable=self.data.reachable,
+            apps=dict(self.data.apps),
+            releases=self.data.releases,
+            errors=self.data.errors,
+        )
+        await self._refresh_tv(data)
+        self.async_set_updated_data(data)
+        self._save()
 
     async def _refresh_tv(self, data: HabrewData) -> None:
         try:
@@ -160,20 +204,19 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         data.reachable = True
         data.apps = {a.package_id or a.app_id: a for a in apps}
 
-    async def _refresh_release(self, data: HabrewData, subentry_id: str, subentry: ConfigSubentry) -> None:
+    async def _refresh_github_release(self, data: HabrewData, subentry_id: str, subentry: ConfigSubentry) -> None:
         asset = await self.github.latest_asset(
             subentry.data[CONF_REPO], subentry.data[CONF_ASSET_PATTERN], subentry.data.get(CONF_PRERELEASES, False)
         )
         current = data.releases.get(subentry_id)
         cache = self._cache_path(subentry_id)
         if current and current.url == asset.url and await self.hass.async_add_executor_job(cache.exists):
-            # same package; refresh release notes only
             current.release_notes = asset.release_notes
             return
         _LOGGER.debug("Downloading %s %s", asset.repo, asset.name)
         package = await self.github.download(asset.url)
         meta = await self.hass.async_add_executor_job(read_wgt_metadata, package)
-        await self.hass.async_add_executor_job(self._write_cache, cache, package)
+        await self.hass.async_add_executor_job(self._write_cache, cache, package, asset.url)
         data.releases[subentry_id] = AppRelease(
             url=asset.url,
             tag=asset.tag,
@@ -187,16 +230,60 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             required_version=meta.required_version,
         )
 
+    async def _refresh_catalog_release(self, data: HabrewData, subentry_id: str, subentry: ConfigSubentry) -> None:
+        catalog = await self.catalog.get()
+        entry = catalog.entries.get(subentry.data[CONF_CATALOG_KEY])
+        if entry is None:
+            raise CatalogError(f"{subentry.title} is no longer in the catalog")
+        data.releases[subentry_id] = AppRelease(
+            url=entry.url,
+            tag=entry.version,
+            asset_name=entry.file,
+            release_url=f"https://github.com/{entry.repo}" if entry.repo else "",
+            release_notes=entry.description,
+            version=entry.version,
+            package_id=entry.package_id,
+            app_id=entry.app_id,
+            name=entry.name,
+            required_version=entry.required_version,
+            sha256=entry.sha256,
+            icon=entry.icon,
+        )
+
     @staticmethod
-    def _write_cache(path: Path, package: bytes) -> None:
+    def _write_cache(path: Path, package: bytes, url: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(package)
+        path.with_suffix(".json").write_text(json.dumps({"url": url}))
+
+    @staticmethod
+    def _read_cache(path: Path, url: str) -> bytes | None:
+        try:
+            meta = json.loads(path.with_suffix(".json").read_text())
+            if meta.get("url") != url:
+                return None
+            return path.read_bytes()
+        except (OSError, ValueError):
+            return None
 
     # ------------------------------------------------------------------ install
 
-    async def async_install(self, subentry_id: str, progress: Callable[[int], None]) -> None:
-        """Sign the cached package with the app's certificate and install it on the TV."""
-        subentry = self.config_entry.subentries[subentry_id]
+    def _set_progress(self, subentry_id: str, pct: int | None) -> None:
+        if pct is None:
+            self.progress.pop(subentry_id, None)
+        elif self.progress.get(subentry_id) == pct:
+            return
+        else:
+            self.progress[subentry_id] = pct
+        self.async_update_listeners()
+
+    async def async_install(self, subentry_id: str, progress: Callable[[int], None] | None = None) -> None:
+        """Sign the package with the app's certificate and install it on the TV."""
+        if subentry_id in self.progress:
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="install_running")
+        subentry = self.config_entry.subentries.get(subentry_id)
+        if subentry is None or subentry.subentry_type != SUBENTRY_APP:
+            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="unknown_app")
         release = self.data.releases.get(subentry_id)
         if release is None:
             raise HomeAssistantError(
@@ -208,14 +295,36 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         if cert_subentry is None:
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="certificate_missing")
 
-        progress(1)
-        cache = self._cache_path(subentry_id)
+        def report(pct: int) -> None:
+            self._set_progress(subentry_id, pct)
+            if progress:
+                progress(pct)
+
+        report(1)
         try:
-            package = await self.hass.async_add_executor_job(cache.read_bytes)
-        except OSError:
-            package = await self.github.download(release.url)
-            await self.hass.async_add_executor_job(self._write_cache, cache, package)
-        progress(5)
+            await self._install(subentry_id, release, cert_subentry, report)
+        finally:
+            self._set_progress(subentry_id, None)
+        await self.async_refresh_tv()
+
+    async def _install(
+        self, subentry_id: str, release: AppRelease, cert_subentry: ConfigSubentry, report: Callable[[int], None]
+    ) -> None:
+        cache = self._cache_path(subentry_id)
+        package = await self.hass.async_add_executor_job(self._read_cache, cache, release.url)
+        if package is None:
+            try:
+                package = await self.github.download(release.url)
+            except GitHubError as err:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="download_failed",
+                    translation_placeholders={"error": str(err)},
+                ) from err
+            if release.sha256 and hashlib.sha256(package).hexdigest() != release.sha256:
+                raise HomeAssistantError(translation_domain=DOMAIN, translation_key="checksum_mismatch")
+            await self.hass.async_add_executor_job(self._write_cache, cache, package, release.url)
+        report(5)
         try:
             profile = await self.hass.async_add_executor_job(
                 certificates.load_profile, self.hass, self.config_entry.entry_id, cert_subentry.data[CONF_CERT_ID]
@@ -227,10 +336,10 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
                 translation_key="certificate_invalid",
                 translation_placeholders={"error": str(err)},
             ) from err
-        progress(10)
+        report(10)
 
         def on_progress(stage: str, pct: int) -> None:
-            progress(10 + pct * 70 // 100 if stage == "upload" else 80 + pct * 19 // 100)
+            report(10 + pct * 70 // 100 if stage == "upload" else 80 + pct * 19 // 100)
 
         try:
             async with self.tv_lock:
@@ -258,5 +367,4 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
                 translation_key="install_failed",
                 translation_placeholders={"error": str(err)},
             ) from err
-        progress(100)
-        await self.async_request_refresh()
+        report(100)

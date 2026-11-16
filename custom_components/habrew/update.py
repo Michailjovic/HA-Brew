@@ -6,12 +6,22 @@ from typing import Any
 
 from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
 from homeassistant.config_entries import ConfigSubentry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_ASSET_PATTERN, CONF_CERTIFICATE, CONF_EXPIRES, CONF_REPO, DOMAIN, SUBENTRY_APP
+from .const import (
+    CONF_ASSET_PATTERN,
+    CONF_CATALOG_KEY,
+    CONF_CERTIFICATE,
+    CONF_EXPIRES,
+    CONF_REPO,
+    CONF_SOURCE,
+    DOMAIN,
+    SOURCE_GITHUB,
+    SUBENTRY_APP,
+)
 from .coordinator import HabrewConfigEntry, HabrewCoordinator
 
 PARALLEL_UPDATES = 1
@@ -90,8 +100,10 @@ class HabrewAppUpdate(CoordinatorEntity[HabrewCoordinator], UpdateEntity):
         cert = self.coordinator.config_entry.subentries.get(self._subentry.data.get(CONF_CERTIFICATE, ""))
         return {
             "tv_reachable": self.coordinator.data.reachable,
-            "repository": self._subentry.data[CONF_REPO],
-            "asset_pattern": self._subentry.data[CONF_ASSET_PATTERN],
+            "source": self._subentry.data.get(CONF_SOURCE, SOURCE_GITHUB),
+            "repository": self._subentry.data.get(CONF_REPO),
+            "asset_pattern": self._subentry.data.get(CONF_ASSET_PATTERN),
+            "catalog_key": self._subentry.data.get(CONF_CATALOG_KEY),
             "release_tag": release.tag if release else None,
             "asset": release.asset_name if release else None,
             "package_id": release.package_id if release else None,
@@ -100,20 +112,18 @@ class HabrewAppUpdate(CoordinatorEntity[HabrewCoordinator], UpdateEntity):
             "last_error": self.coordinator.data.errors.get(self._subentry.subentry_id),
         }
 
+    @property
+    def in_progress(self) -> bool:
+        return self._subentry.subentry_id in self.coordinator.progress
+
+    @property
+    def update_percentage(self) -> int | None:
+        return self.coordinator.progress.get(self._subentry.subentry_id)
+
+    @property
+    def entity_picture(self) -> str | None:
+        release = self._release
+        return release.icon if release and release.icon else None
+
     async def async_install(self, version: str | None, backup: bool, **kwargs: Any) -> None:
-        self._attr_in_progress = True
-        self._attr_update_percentage = 0
-        self.async_write_ha_state()
-
-        @callback
-        def progress(pct: int) -> None:
-            if pct != self._attr_update_percentage:
-                self._attr_update_percentage = pct
-                self.async_write_ha_state()
-
-        try:
-            await self.coordinator.async_install(self._subentry.subentry_id, progress)
-        finally:
-            self._attr_in_progress = False
-            self._attr_update_percentage = None
-            self.async_write_ha_state()
+        await self.coordinator.async_install(self._subentry.subentry_id)

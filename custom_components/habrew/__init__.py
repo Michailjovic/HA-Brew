@@ -2,14 +2,42 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from homeassistant.components import panel_custom
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import translation
+from homeassistant.helpers.typing import ConfigType
 
-from . import certificates
-from .const import CONF_CERT_ID, SUBENTRY_CERTIFICATE
+from . import certificates, websocket_api
+from .const import CONF_CERT_ID, DOMAIN, PANEL_COMPONENT, PANEL_URL, STATIC_URL, SUBENTRY_CERTIFICATE, VERSION
 from .coordinator import HabrewConfigEntry, HabrewCoordinator
 
 PLATFORMS: list[Platform] = [Platform.UPDATE]
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the WebSocket API and the sidebar panel."""
+    websocket_api.async_register(hass)
+    await translation.async_load_integrations(hass, {DOMAIN})
+    await hass.http.async_register_static_paths(
+        [StaticPathConfig(STATIC_URL, str(Path(__file__).parent / "frontend"), cache_headers=False)]
+    )
+    await panel_custom.async_register_panel(
+        hass,
+        frontend_url_path=PANEL_URL,
+        webcomponent_name=PANEL_COMPONENT,
+        sidebar_title="HA-Brew",
+        sidebar_icon="mdi:television-classic",
+        module_url=f"{STATIC_URL}/ha-brew-panel.js?v={VERSION}",
+        require_admin=True,
+        config={},
+    )
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: HabrewConfigEntry) -> bool:

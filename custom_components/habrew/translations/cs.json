@@ -45,7 +45,7 @@
         },
         "p12": {
           "title": "Dvojice certifikátů PKCS#12",
-          "description": "Nahraj `author.p12` a `distributor.p12` (Apps2Samsung: `%APPDATA%\\Apps2Samsung\\Certificate\\<profil>`, heslo je v `password.txt`).",
+          "description": "Nahraj `author.p12` a `distributor.p12` (Apps2Samsung: `%APPDATA%\\Apps2Samsung\\Certificate\\` (složka profilu), heslo je v `password.txt`).",
           "data": {
             "author_file": "author.p12",
             "distributor_file": "distributor.p12",
@@ -144,6 +144,18 @@
     },
     "tv_unreachable": {
       "message": "Televize není dostupná. Zapni ji a zkontroluj Developer Mode ({error})."
+    },
+    "install_running": {
+      "message": "Instalace této aplikace už probíhá."
+    },
+    "unknown_app": {
+      "message": "Neznámá aplikace."
+    },
+    "download_failed": {
+      "message": "Balíček nejde stáhnout: {error}"
+    },
+    "checksum_mismatch": {
+      "message": "Stažený balíček neodpovídá kontrolnímu součtu z katalogu, instalace byla zastavena."
     }
   }
 }

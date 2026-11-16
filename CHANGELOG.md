@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-11-16
+
+### Added
+- **HA-Brew sidebar panel** (admins only), with three tabs:
+  - **TVs**: managed apps with installed and available version, install/update/reinstall/remove with live progress. Other apps on the TV can be taken over with **Manage** when the catalog has them. Apps can be added from GitHub.
+  - **Catalog**: the Apps2Samsung community catalog (web apps), with search, categories, an optional 18+ filter, and flag and certificate-level warnings. **Add to TV** can install right away.
+  - **Certificates**: expiry and usage per certificate.
+- Catalog app source. Catalog apps do not need GitHub API calls. Downloads are verified against the catalog's SHA-256.
+- WebSocket API (`habrew/overview`, `habrew/catalog`, `habrew/app/add`, `habrew/app/remove`, `habrew/app/install`, `habrew/refresh`).
+- App icons from the catalog are used as the entity picture.
+- Brand icon.
+
+### Changed
+- Install progress is tracked by the coordinator, so the panel and the update entity show the same state.
+- The cached package is re-downloaded when the release URL changes.
+
+### Fixed
+- hassfest: translation strings no longer contain `<...>`.
+
 ## [0.1.0] - 2026-11-16
 
 ### Added
