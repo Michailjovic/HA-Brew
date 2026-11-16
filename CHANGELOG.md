@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] - 2026-11-16
+
+### Changed
+- Panel, TVs tab: apps that are not managed are split into:
+  - **sideloaded apps**: take over from the catalog, or add from GitHub when the catalog doesn't have them
+  - **Samsung store / system apps**: collapsed, read-only, because Samsung updates them
+- Panel, Catalog tab:
+  - Variants of the same app are grouped into one card.
+  - Each card shows its state per TV: *managed*, *installed but not managed* (button **Take over**), or not installed (**Add to TV**).
+  - Apps managed from GitHub are recognised too.
+- Take-over forms only offer the variants that match the installed package, and remind you to pick the original certificate.
+
+### Fixed
+- Repository links for catalog providers without their own metadata (e.g. TizenTube).
+
 ## [0.2.0] - 2026-11-16
 
 ### Added

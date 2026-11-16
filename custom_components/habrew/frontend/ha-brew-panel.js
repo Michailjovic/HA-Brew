@@ -71,6 +71,18 @@ const STRINGS = {
     no_apps: "No apps managed yet. Add one from the catalog, from GitHub, or manage an app below.",
     tv_offline_hint: "The TV is off or not reachable. Versions shown are the last known.",
     count: "{n} apps",
+    sideloaded_apps: "Other sideloaded apps (not managed)",
+    store_apps: "Samsung store and system apps",
+    store_hint: "These are updated by Samsung; HA-Brew does not manage them.",
+    take_over: "Take over",
+    takeover_hint: "Pick the variant that is installed on the TV and the certificate it was installed with, otherwise the TV refuses updates.",
+    variant: "Variant",
+    variants: "{n} variants",
+    managed_on: "{tv}: managed ({v})",
+    installed_unmanaged: "{tv}: installed {v}, not managed",
+    show: "Show",
+    origin_store: "Samsung store",
+    origin_system: "System",
   },
   cs: {
     tvs: "Televize",
@@ -138,6 +150,18 @@ const STRINGS = {
     no_apps: "Zatím žádné spravované aplikace. Přidej je z katalogu, z GitHubu nebo převezmi aplikaci níže.",
     tv_offline_hint: "Televize je vypnutá nebo nedostupná. Zobrazené verze jsou poslední známé.",
     count: "{n} aplikací",
+    sideloaded_apps: "Další nahrané aplikace (mimo HA-Brew)",
+    store_apps: "Aplikace z obchodu Samsung a systémové",
+    store_hint: "Aktualizuje je Samsung, HA-Brew je nespravuje.",
+    take_over: "Převzít do správy",
+    takeover_hint: "Vyber variantu, která je v televizi, a certifikát, kterým byla nainstalována – jinak televize aktualizace odmítne.",
+    variant: "Varianta",
+    variants: "{n} varianty",
+    managed_on: "{tv}: spravováno ({v})",
+    installed_unmanaged: "{tv}: nainstalováno {v}, mimo HA-Brew",
+    show: "Zobrazit",
+    origin_store: "Obchod Samsung",
+    origin_system: "Systémová",
   },
 };
 
@@ -308,11 +332,11 @@ class HaBrewPanel extends HTMLElement {
         this._render();
         break;
       case "form-github":
-        this._form = { kind: "github", entry };
+        this._form = { kind: "github", entry, name: el.dataset.name || "" };
         this._render();
         break;
       case "form-catalog":
-        this._form = { kind: "catalog", key };
+        this._form = { kind: "catalog", key, mode: el.dataset.mode || "add" };
         this._render();
         break;
       case "form-cancel":
@@ -335,6 +359,11 @@ class HaBrewPanel extends HTMLElement {
 
   _onInput(ev) {
     const el = ev.target;
+    if (ev.type === "change" && el.name === "entry_id" && this._form?.kind === "catalog") {
+      this._form.entry = el.value;
+      this._render();
+      return;
+    }
     if (!el.dataset.filter) return;
     if (el.dataset.filter === "adult") this._filter.adult = el.checked;
     else this._filter[el.dataset.filter] = el.value;
@@ -467,7 +496,9 @@ class HaBrewPanel extends HTMLElement {
           ${tv.apps.map((a) => this._appRow(tv, a)).join("")}
         </div>`
       : `<div class="hint">${this.t("no_apps")}</div>`;
-    const others = tv.tv_apps.filter((a) => !a.managed_by);
+    const unmanaged = tv.tv_apps.filter((a) => !a.managed_by);
+    const sideloaded = unmanaged.filter((a) => a.origin === "sideload");
+    const store = unmanaged.filter((a) => a.origin !== "sideload");
     return `<div class="card">
       <div class="card-head">
         <div><div class="h1">${esc(tv.title)} ${this._status(tv)}</div><div class="muted">${esc(sub)}</div></div>
@@ -480,8 +511,11 @@ class HaBrewPanel extends HTMLElement {
       <div class="section-title">${this.t("managed")}</div>
       ${managed}
       ${this._form?.kind === "github" && this._form.entry === tv.entry_id ? this._githubForm(tv) : `<div class="add-row"><button class="btn" data-action="form-github" data-entry="${tv.entry_id}"><ha-icon icon="mdi:github"></ha-icon>${this.t("add_github")}</button></div>`}
-      ${others.length ? `<div class="section-title">${this.t("other_apps")} <span class="muted">(${this.t("count", { n: others.length })})</span></div>
-        <div class="table">${others.map((a) => this._otherRow(tv, a)).join("")}</div>` : ""}
+      ${sideloaded.length ? `<div class="section-title">${this.t("sideloaded_apps")}</div>
+        <div class="table">${sideloaded.map((a) => this._otherRow(tv, a)).join("")}</div>` : ""}
+      ${store.length ? `<details class="store"><summary class="section-title">${this.t("store_apps")} <span class="muted">(${this.t("count", { n: store.length })})</span></summary>
+        <div class="hint">${this.t("store_hint")}</div>
+        <div class="table">${store.map((a) => this._storeRow(a)).join("")}</div></details>` : ""}
     </div>`;
   }
 
@@ -519,22 +553,30 @@ class HaBrewPanel extends HTMLElement {
   }
 
   _otherRow(tv, a) {
-    let action;
     if (this._form?.kind === "manage" && this._form.entry === tv.entry_id && this._form.pkg === a.package_id) {
       return `<div class="row form-row">${this._manageForm(tv, a)}</div>`;
     }
-    if (a.catalog.length) {
-      action = `<button class="btn" data-action="form-manage" data-entry="${tv.entry_id}" data-pkg="${esc(a.package_id)}">${this.t("manage")}</button>`;
-    } else {
-      action = `<span class="muted small">${this.t("not_in_catalog")}</span>`;
-    }
-    const newer = a.catalog.find((c) => c.version && c.version !== a.version);
+    const action = a.catalog.length
+      ? `<button class="btn" data-action="form-manage" data-entry="${tv.entry_id}" data-pkg="${esc(a.package_id)}">${this.t("take_over")}</button>`
+      : `<span class="muted small">${this.t("not_in_catalog")}</span>
+         <button class="btn small" data-action="form-github" data-entry="${tv.entry_id}" data-name="${esc(a.title)}"><ha-icon icon="mdi:github"></ha-icon>${this.t("add_github")}</button>`;
+    const newest = a.catalog.map((c) => c.version).filter(Boolean).sort().pop();
     return `<div class="row">
       <div class="app"><div class="app-icon ph"><ha-icon icon="mdi:television-play"></ha-icon></div>
         <div><div class="app-name">${esc(a.title || a.app_id)}</div><div class="muted small">${esc(a.app_id)}</div></div></div>
       <div><span class="ver">${esc(a.version || "—")}</span></div>
-      <div><span class="ver">${newer ? esc(newer.version) : a.catalog[0] ? esc(a.catalog[0].version) : "—"}</span></div>
+      <div><span class="ver">${esc(newest || "—")}</span></div>
       <div class="actions">${action}</div>
+    </div>`;
+  }
+
+  _storeRow(a) {
+    return `<div class="row">
+      <div class="app"><div class="app-icon ph"><ha-icon icon="mdi:storefront-outline"></ha-icon></div>
+        <div><div class="app-name">${esc(a.title || a.app_id)}</div><div class="muted small">${esc(a.app_id)}</div></div></div>
+      <div><span class="ver">${esc(a.version || "—")}</span></div>
+      <div></div>
+      <div class="actions"><span class="chip">${this.t(a.origin === "store" ? "origin_store" : "origin_system")}</span></div>
     </div>`;
   }
 
@@ -549,12 +591,12 @@ class HaBrewPanel extends HTMLElement {
     return `<div class="hint warn">${this.t("no_certs")} <button class="btn small" data-action="open-config">${this.t("add_cert")}</button></div>`;
   }
 
-  _formButtons(withInstall = true) {
+  _formButtons(withInstall = true, label = null) {
     const busy = this._busy.form;
     return `<div class="form-actions">
       ${withInstall ? `<label class="check"><input type="checkbox" name="install_now"> ${this.t("install_now")}</label>` : ""}
       <button type="button" class="btn" data-action="form-cancel">${this.t("cancel")}</button>
-      <button type="button" class="btn primary" data-action="form-submit" ${busy ? "disabled" : ""}>${this.t("save")}</button>
+      <button type="button" class="btn primary" data-action="form-submit" ${busy ? "disabled" : ""}>${label || this.t("save")}</button>
     </div>`;
   }
 
@@ -564,12 +606,13 @@ class HaBrewPanel extends HTMLElement {
     return `<form class="inline-form">
       <input type="hidden" name="entry_id" value="${tv.entry_id}">
       <input type="hidden" name="catalog_label" value="${esc(a.title)}">
-      <div class="form-title">${esc(a.title)}</div>
-      <label>${this.t("catalog")}<select name="catalog_key">${a.catalog
-        .map((c) => `<option value="${esc(c.key)}">${esc(c.name)}${c.variant ? ` – ${esc(c.variant)}` : ""} (${esc(c.version)})</option>`)
+      <div class="form-title">${this.t("take_over")}: ${esc(a.title)} <span class="ver muted">${esc(a.version)}</span></div>
+      <div class="hint form-hint">${this.t("takeover_hint")}</div>
+      <label>${this.t("variant")}<select name="catalog_key">${a.catalog
+        .map((c) => `<option value="${esc(c.key)}">${esc(c.name)}${c.variant && c.variant !== c.name ? ` – ${esc(c.variant)}` : ""} (${esc(c.version)})</option>`)
         .join("")}</select></label>
       ${certs}
-      ${this._formButtons(true)}
+      ${this._formButtons(false, this.t("take_over"))}
     </form>`;
   }
 
@@ -579,7 +622,7 @@ class HaBrewPanel extends HTMLElement {
     return `<form class="inline-form">
       <input type="hidden" name="entry_id" value="${tv.entry_id}">
       <div class="form-title"><ha-icon icon="mdi:github"></ha-icon> ${this.t("add_github")}</div>
-      <label>${this.t("name")}<input name="name" placeholder="Nuvio TV"></label>
+      <label>${this.t("name")}<input name="name" placeholder="Nuvio TV" value="${esc(this._form?.name || "")}"></label>
       <label>${this.t("repo")}<input name="repo" placeholder="NuvioMedia/NuvioTVSmart" required></label>
       <label>${this.t("pattern")}<input name="asset_pattern" value="\\.wgt$"></label>
       ${certs}
@@ -608,40 +651,75 @@ class HaBrewPanel extends HTMLElement {
       <div class="credit"><a href="https://github.com/Apps2Samsung/tizen-community-packages" target="_blank" rel="noreferrer">${this.t("catalog_credit")}</a></div>`;
   }
 
+  _catalogGroups() {
+    const groups = new Map();
+    for (const e of this._catalog.entries) {
+      const id = `${e.provider}|${e.group || e.name}`;
+      if (!groups.has(id)) groups.set(id, { id, name: e.group || e.name, entries: [] });
+      groups.get(id).entries.push(e);
+    }
+    for (const g of groups.values()) g.entries.sort((a, b) => a.variant.localeCompare(b.variant));
+    return [...groups.values()];
+  }
+
+  _groupStatus(g, tv) {
+    const keys = new Set(g.entries.map((e) => e.key));
+    const pkgs = new Set(g.entries.map((e) => e.package_id).filter(Boolean));
+    const managed = tv.apps.find((a) => keys.has(a.catalog_key) || (a.package_id && pkgs.has(a.package_id)));
+    if (managed) return { state: "managed", version: managed.installed_version || managed.latest_version || "" };
+    const installed = tv.tv_apps.find((a) => a.origin === "sideload" && !a.managed_by && pkgs.has(a.package_id));
+    if (installed) return { state: "installed", version: installed.version, package_id: installed.package_id };
+    return { state: "none" };
+  }
+
   _catalogItems() {
     if (!this._catalog) return "";
     const q = this._filter.q.trim().toLowerCase();
-    const items = this._catalog.entries
-      .filter((e) => (this._filter.adult || !e.adult) && (!this._filter.cat || e.category === this._filter.cat))
-      .filter((e) => !q || `${e.name} ${e.variant} ${e.description} ${e.repo}`.toLowerCase().includes(q))
-      .sort((a, b) => a.name.localeCompare(b.name) || a.variant.localeCompare(b.variant));
-    const tvs = this._overview?.tvs || [];
-    return items
-      .map((e) => {
-        const status = tvs
-          .map((tv) => {
-            const managed = tv.apps.find((a) => a.catalog_key === e.key);
-            const installed = tv.tv_apps.find((a) => a.package_id && a.package_id === e.package_id);
-            if (managed) return `<span class="chip ok">${esc(tv.title)}: ${this.t("added")}</span>`;
-            if (installed) return `<span class="chip">${esc(tv.title)}: ${this.t("installed_on")} ${esc(installed.version)}</span>`;
-            return "";
-          })
+    const tvs = (this._overview?.tvs || []).filter((tv) => tv.loaded);
+    const groups = this._catalogGroups()
+      .map((g) => ({ ...g, entries: g.entries.filter((e) => this._filter.adult || !e.adult) }))
+      .filter((g) => g.entries.length && (!this._filter.cat || g.entries.some((e) => e.category === this._filter.cat)))
+      .filter((g) => !q || g.entries.some((e) => `${e.name} ${e.variant} ${e.description} ${e.repo}`.toLowerCase().includes(q)))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return groups
+      .map((g) => {
+        const e = g.entries[0];
+        const statuses = tvs.map((tv) => ({ tv, ...this._groupStatus(g, tv) }));
+        const chips = statuses
+          .map((st) =>
+            st.state === "managed"
+              ? `<span class="chip ok">${this.t("managed_on", { tv: esc(st.tv.title), v: esc(st.version) })}</span>`
+              : st.state === "installed"
+                ? `<span class="chip warn">${this.t("installed_unmanaged", { tv: esc(st.tv.title), v: esc(st.version) })}</span>`
+                : "",
+          )
           .join("");
-        const flags = (e.flags || []).map((f) => `<span class="chip warn">${esc(this.t(`flag_${f}`))}</span>`).join("");
-        const form = this._form?.kind === "catalog" && this._form.key === e.key ? this._catalogForm(e) : "";
+        let button;
+        if (statuses.some((st) => st.state === "installed")) {
+          button = `<button class="btn primary small" data-action="form-catalog" data-mode="takeover" data-key="${esc(g.id)}">${this.t("take_over")}</button>`;
+        } else if (statuses.length && statuses.every((st) => st.state === "managed")) {
+          button = `<button class="btn small" data-action="tab" data-tab="tvs">${this.t("show")}</button>`;
+        } else {
+          button = `<button class="btn primary small" data-action="form-catalog" data-mode="add" data-key="${esc(g.id)}">${this.t("add_to_tv")}</button>`;
+        }
+        const flags = [...new Set(g.entries.flatMap((x) => x.flags || []))].map((f) => `<span class="chip warn">${esc(this.t(`flag_${f}`))}</span>`).join("");
+        const versions = [...new Set(g.entries.map((x) => x.version).filter(Boolean))];
+        const minReq = g.entries.map((x) => x.required_version).filter(Boolean).sort((a, b) => parseFloat(a) - parseFloat(b))[0];
+        const form = this._form?.kind === "catalog" && this._form.key === g.id ? this._catalogForm(g, statuses) : "";
+        const subtitle = g.entries.length > 1 ? this.t("variants", { n: g.entries.length }) : e.variant && e.variant !== e.name ? esc(e.variant) : "";
         return `<div class="card item">
           <div class="item-head">
             ${e.icon ? `<img class="app-icon big" src="${esc(e.icon)}" alt="" loading="lazy">` : `<div class="app-icon big ph"><ha-icon icon="mdi:application"></ha-icon></div>`}
-            <div><div class="app-name">${esc(e.name)}</div>${e.variant && e.variant !== e.name ? `<div class="muted small">${esc(e.variant)}</div>` : ""}</div>
+            <div><div class="app-name">${esc(g.name)}</div>${subtitle ? `<div class="muted small">${subtitle}</div>` : ""}</div>
           </div>
           <div class="desc">${esc(e.description)}</div>
-          <div class="meta"><span class="ver">${esc(e.version || "?")}</span>
-            ${e.required_version ? `<span class="chip">${this.t("requires", { v: esc(e.required_version) })}</span>` : ""}
-            ${e.cert_level === "partner" ? `<span class="chip warn">${this.t("partner")}</span>` : ""}${flags}</div>
-          ${status ? `<div class="meta">${status}</div>` : ""}
+          <div class="meta"><span class="ver">${esc(versions.join(" / ") || "?")}</span>
+            ${minReq ? `<span class="chip">${this.t("requires", { v: esc(minReq) })}</span>` : ""}
+            ${g.entries.some((x) => x.cert_level === "partner") ? `<span class="chip warn">${this.t("partner")}</span>` : ""}${flags}</div>
+          ${chips ? `<div class="meta">${chips}</div>` : ""}
           <div class="item-foot">
             ${e.repo ? `<a class="muted small" href="https://github.com/${esc(e.repo)}" target="_blank" rel="noreferrer">${esc(e.repo)}</a>` : "<span></span>"}
-            ${form ? "" : `<button class="btn primary small" data-action="form-catalog" data-key="${esc(e.key)}">${this.t("add_to_tv")}</button>`}
+            ${form ? "" : button}
           </div>
           ${form}
         </div>`;
@@ -649,18 +727,22 @@ class HaBrewPanel extends HTMLElement {
       .join("");
   }
 
-  _catalogForm(e) {
-    const tvs = (this._overview?.tvs || []).filter((tv) => tv.loaded);
-    if (!tvs.length) return "";
-    const withCerts = tvs.filter((tv) => tv.certificates.length);
-    if (!withCerts.length) return this._noCert(tvs[0]);
-    const tv = withCerts[0];
+  _catalogForm(g, statuses) {
+    const takeover = this._form.mode === "takeover";
+    const candidates = statuses.filter((st) => st.tv.certificates.length && (takeover ? st.state === "installed" : st.state !== "managed"));
+    if (!candidates.length) return statuses.length ? this._noCert(statuses[0].tv) : "";
+    const current = candidates.find((st) => st.tv.entry_id === this._form.entry) || candidates[0];
+    const variants = takeover ? g.entries.filter((e) => e.package_id === current.package_id) : g.entries;
+    const label = (e) => `${esc(e.variant && e.variant !== e.name ? e.variant : e.name)} (${esc(e.version)}${e.required_version ? `, Tizen ≥ ${esc(e.required_version)}` : ""})`;
     return `<form class="inline-form">
-      <input type="hidden" name="catalog_key" value="${esc(e.key)}">
-      <input type="hidden" name="catalog_label" value="${esc(e.name)}">
-      <label>${this.t("tv")}<select name="entry_id">${withCerts.map((t) => `<option value="${t.entry_id}">${esc(t.title)}</option>`).join("")}</select></label>
-      ${this._certSelect(tv)}
-      ${this._formButtons(true)}
+      <input type="hidden" name="catalog_label" value="${esc(g.name)}">
+      ${takeover ? `<div class="hint form-hint">${this.t("takeover_hint")}</div>` : ""}
+      <label>${this.t("tv")}<select name="entry_id">${candidates
+        .map((st) => `<option value="${st.tv.entry_id}" ${st.tv.entry_id === current.tv.entry_id ? "selected" : ""}>${esc(st.tv.title)}</option>`)
+        .join("")}</select></label>
+      ${variants.length > 1 || takeover ? `<label>${this.t("variant")}<select name="catalog_key">${variants.map((e) => `<option value="${esc(e.key)}">${label(e)}</option>`).join("")}</select></label>` : `<input type="hidden" name="catalog_key" value="${esc(variants[0].key)}">`}
+      ${this._certSelect(current.tv)}
+      ${this._formButtons(!takeover, takeover ? this.t("take_over") : null)}
     </form>`;
   }
 
@@ -768,6 +850,8 @@ input, select { font: inherit; padding:8px 10px; border-radius:8px; border:1px s
 .item-foot a { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .credit { text-align:center; margin:18px 0; font-size:12px; }
 .credit a, a { color: var(--primary-color); }
+details.store summary { cursor:pointer; list-style:revert; }
+.form-hint { grid-column:1/-1; margin:0; }
 .empty { text-align:center; padding:40px 16px; color: var(--secondary-text-color); }
 @media (max-width: 700px) {
   .row { grid-template-columns: minmax(0,1fr) auto auto; }

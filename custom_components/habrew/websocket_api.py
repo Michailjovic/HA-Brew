@@ -138,10 +138,17 @@ def _serialize_entry(hass: HomeAssistant, entry: HabrewConfigEntry, catalog: Cat
                     "app_id": app.app_id,
                     "title": app.title,
                     "version": app.version,
-                    "type": app.app_type,
+                    "origin": app.origin,
                     "managed_by": managed_packages.get(app.package_id),
                     "catalog": [
-                        {"key": m.key, "name": m.name, "variant": m.variant, "version": m.version} for m in matches
+                        {
+                            "key": m.key,
+                            "name": m.name,
+                            "group": m.group or m.name,
+                            "variant": m.variant,
+                            "version": m.version,
+                        }
+                        for m in matches
                     ],
                 }
             )

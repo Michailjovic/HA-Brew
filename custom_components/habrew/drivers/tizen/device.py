@@ -36,11 +36,19 @@ class TizenDeviceInfo:
 class TizenApp:
     """An installed application as reported by vd_applist."""
 
+    @property
+    def origin(self) -> str:
+        """sideload | store | system (unknown values count as sideload)."""
+        if self.app_type == "normal":
+            return "store" if self.install_source == "1" else "system"
+        return "sideload"
+
     app_id: str
     package_id: str
     title: str
     version: str
-    app_type: str = ""
+    app_type: str = ""  # "user" = sideloaded, "normal" = store / preinstalled
+    install_source: str = ""  # installed_source_type: "1" = Samsung store
 
 
 class TizenInstallError(Exception):
@@ -77,6 +85,7 @@ def parse_vd_applist(output: str) -> list[TizenApp]:
                 title=fields.get("app_title", ""),
                 version=fields.get("app_version", ""),
                 app_type=fields.get("type", ""),
+                install_source=fields.get("installed_source_type", ""),
             )
         )
     return apps

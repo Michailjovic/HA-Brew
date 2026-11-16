@@ -137,7 +137,7 @@ def parse_snapshot(data: dict[str, Any]) -> Catalog:
         else:
             name = PROVIDER_NAMES.get(pid, pid.replace("-", " ").title())
             repo = ""
-            if m := re.match(r"https://github\.com/([^/]+/[^/]+)", releases[0].get("url", "")):
+            if m := re.match(r"https://(?:api\.)?github\.com/(?:repos/)?([^/]+/[^/]+)", releases[0].get("url", "")):
                 repo = m.group(1)
             for file, asset in assets.items():
                 if not file.endswith(".wgt"):

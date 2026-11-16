@@ -88,13 +88,16 @@ def test_parse_vd_applist_tizen9():
         "--------------app_version   = 1.3.6-------------\n--------------app_tizen_id   = NuvioTV001.NuvioTV-------------\n"
         "--------------app_package_name   = NuvioTV001-------------\n" + "-" * 93 + "\n"
     )
-    [app] = parse_vd_applist(out)
-    assert (app.package_id, app.app_id, app.version, app.title) == (
-        "NuvioTV001",
-        "NuvioTV001.NuvioTV",
-        "1.3.6",
-        "Nuvio TV",
+    store = (
+        "--------------app_id   = 3202306031311-------------\n--------------app_title   = Stremio-------------\n"
+        "--------------app_version   = 1.11.1-------------\n--------------app_tizen_id   = IkWsFHtOY9.Stremio-------------\n"
+        "--------------app_package_name   = IkWsFHtOY9-------------\n--------------type   = normal-------------\n"
+        "--------------installed_source_type   = 1-------------\n" + "-" * 93 + "\n"
     )
+    app, stremio = parse_vd_applist(out + store)
+    assert (app.package_id, app.app_id, app.version, app.title) == ("NuvioTV001", "NuvioTV001.NuvioTV", "1.3.6", "Nuvio TV")
+    assert app.origin == "sideload"
+    assert (stremio.package_id, stremio.app_id, stremio.origin) == ("IkWsFHtOY9", "IkWsFHtOY9.Stremio", "store")
 
 
 async def test_device_install(sdbd, wgt):
