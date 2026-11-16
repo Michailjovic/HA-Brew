@@ -31,14 +31,19 @@ def no_setup():
 async def test_user_flow(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_USER})
     assert result["type"] is FlowResultType.FORM
-    with patch("custom_components.habrew.config_flow.TizenDevice.get_info", side_effect=SdbConnectError("x")):
+    with patch(
+        "custom_components.habrew.config_flow.TizenDevice.get_info",
+        side_effect=SdbConnectError("x"),
+    ):
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"name": "M70", "host": "192.168.1.91", "platform": "tizen"}
+            result["flow_id"],
+            {"name": "M70", "host": "192.168.1.91", "platform": "tizen"},
         )
     assert result["errors"] == {"base": "cannot_connect"}
     with patch("custom_components.habrew.config_flow.TizenDevice.get_info", return_value=INFO):
         result = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {"name": "M70", "host": "192.168.1.91", "platform": "tizen"}
+            result["flow_id"],
+            {"name": "M70", "host": "192.168.1.91", "platform": "tizen"},
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["result"].unique_id == DUID
@@ -50,7 +55,13 @@ def _entry(hass: HomeAssistant) -> MockConfigEntry:
         domain=DOMAIN,
         title="M70",
         unique_id=DUID,
-        data={"host": "127.0.0.1", "platform": "tizen", "duid": DUID, "model": "QE55MOCK", "platform_version": "9.0"},
+        data={
+            "host": "127.0.0.1",
+            "platform": "tizen",
+            "duid": DUID,
+            "model": "QE55MOCK",
+            "platform_version": "9.0",
+        },
     )
     entry.add_to_hass(hass)
     return entry
@@ -104,13 +115,25 @@ async def test_certificate_p12(hass: HomeAssistant, p12_pair) -> None:
     assert result["step_id"] == "p12"
     with patch("custom_components.habrew.config_flow._read_upload", side_effect=list(p12_pair)):
         result = await hass.config_entries.subentries.async_configure(
-            result["flow_id"], {"author_file": FILE_ID, "distributor_file": FILE_ID2, "password": PASSWORD}
+            result["flow_id"],
+            {
+                "author_file": FILE_ID,
+                "distributor_file": FILE_ID2,
+                "password": PASSWORD,
+            },
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
 
 
 ASSET = ReleaseAsset(
-    "NuvioMedia/NuvioTVSmart", "1.4.2", "NuvioTV-Tizen-1.4.2.wgt", "https://x/a.wgt", 1, "https://x/r", "notes", False
+    "NuvioMedia/NuvioTVSmart",
+    "1.4.2",
+    "NuvioTV-Tizen-1.4.2.wgt",
+    "https://x/a.wgt",
+    1,
+    "https://x/r",
+    "notes",
+    False,
 )
 
 
@@ -124,15 +147,26 @@ async def test_app_flow(hass: HomeAssistant, tizenbrew_json) -> None:
     from homeassistant.config_entries import ConfigSubentry
 
     cert = ConfigSubentry(
-        data=MappingProxyType({"cert_id": "abc"}), subentry_type="certificate", title="TizenBrew", unique_id="1"
+        data=MappingProxyType({"cert_id": "abc"}),
+        subentry_type="certificate",
+        title="TizenBrew",
+        unique_id="1",
     )
     hass.config_entries.async_add_subentry(entry, cert)
 
     result = await hass.config_entries.subentries.async_init((entry.entry_id, "app"), context={"source": SOURCE_USER})
     assert result["step_id"] == "user"
-    with patch("custom_components.habrew.config_flow.GitHubClient.latest_asset", AsyncMock(return_value=ASSET)):
+    with patch(
+        "custom_components.habrew.config_flow.GitHubClient.latest_asset",
+        AsyncMock(return_value=ASSET),
+    ):
         result = await hass.config_entries.subentries.async_configure(
-            result["flow_id"], {"preset": "nuvio", "certificate": cert.subentry_id, "include_prereleases": False}
+            result["flow_id"],
+            {
+                "preset": "nuvio",
+                "certificate": cert.subentry_id,
+                "include_prereleases": False,
+            },
         )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     [app] = [s for s in entry.subentries.values() if s.subentry_type == "app"]
@@ -141,17 +175,50 @@ async def test_app_flow(hass: HomeAssistant, tizenbrew_json) -> None:
     # custom repository with no matching asset
     result = await hass.config_entries.subentries.async_init((entry.entry_id, "app"), context={"source": SOURCE_USER})
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"preset": "custom", "certificate": cert.subentry_id, "include_prereleases": False}
+        result["flow_id"],
+        {
+            "preset": "custom",
+            "certificate": cert.subentry_id,
+            "include_prereleases": False,
+        },
     )
     assert result["step_id"] == "custom"
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"name": "X", "repo": "not a repo", "asset_pattern": r"\.wgt$"}
+        result["flow_id"],
+        {"name": "X", "repo": "not a repo", "asset_pattern": r"\.wgt$"},
     )
     assert result["errors"] == {"repo": "invalid_repo"}
     with patch(
-        "custom_components.habrew.config_flow.GitHubClient.latest_asset", AsyncMock(side_effect=NoMatchingAsset("x"))
+        "custom_components.habrew.config_flow.GitHubClient.latest_asset",
+        AsyncMock(side_effect=NoMatchingAsset("x")),
     ):
         result = await hass.config_entries.subentries.async_configure(
-            result["flow_id"], {"name": "X", "repo": "https://github.com/a/b", "asset_pattern": r"\.wgt$"}
+            result["flow_id"],
+            {"name": "X", "repo": "https://github.com/a/b", "asset_pattern": r"\.wgt$"},
         )
     assert result["errors"] == {"base": "no_asset"}
+
+
+async def test_options_wake(hass: HomeAssistant) -> None:
+    entry = _entry(hass)
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"wake_method": "wol", "mac": "nonsense", "wake_timeout": 60}
+    )
+    assert result["errors"] == {"mac": "invalid_mac"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"wake_method": "entity", "wake_timeout": 60}
+    )
+    assert result["errors"] == {"wake_entity": "entity_required"}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"wake_method": "wol", "mac": "cc-20-ac-49-71-3d", "wake_timeout": 45},
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert entry.options == {
+        "wake_method": "wol",
+        "mac": "CC:20:AC:49:71:3D",
+        "broadcast_address": "255.255.255.255",
+        "wake_timeout": 45,
+    }

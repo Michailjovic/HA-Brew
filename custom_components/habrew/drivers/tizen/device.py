@@ -14,10 +14,12 @@ _LOGGER = logging.getLogger(__name__)
 REMOTE_DIR = "/home/owner/share/tmp/sdk_tools"
 REMOTE_PACKAGE = f"{REMOTE_DIR}/habrew-package.wgt"
 _INSTALL_DONE_RX = re.compile(
-    r"spend time|install failed|download failed|check certificate error|invalid certificate chain", re.I
+    r"spend time|install failed|download failed|check certificate error|invalid certificate chain",
+    re.I,
 )
 _INSTALL_FAILED_RX = re.compile(
-    r"install failed|check certificate error|invalid certificate chain|download failed", re.I
+    r"install failed|check certificate error|invalid certificate chain|download failed",
+    re.I,
 )
 _PERCENT_RX = re.compile(r"installing\[(\d+)\]")
 _FAIL_CODE_RX = re.compile(r"install failed\s*\[\s*([^\]]+)\]\s*(?:,\s*reason:\s*(.*))?", re.I)
@@ -59,6 +61,10 @@ class TizenInstallError(Exception):
         self.code = code
         self.reason = reason
         self.kind = kind  # author_mismatch | certificate | platform | unknown
+
+
+class TizenLaunchError(Exception):
+    """The TV refused to start the app."""
 
 
 def parse_vd_applist(output: str) -> list[TizenApp]:
@@ -128,6 +134,14 @@ class TizenDevice:
     async def list_apps(self) -> list[TizenApp]:
         async with self._connection() as conn:
             return parse_vd_applist(await conn.shell("0 vd_applist", timeout=30))
+
+    async def launch(self, app_id: str) -> str:
+        """Start an installed app (Smart Hub launcher). Returns the TV's reply."""
+        async with self._connection() as conn:
+            reply = await conn.shell(f"0 was_execute {app_id}", timeout=20)
+        if re.search(r"launch failed|not exist|not found", reply, re.I) or "launched" not in reply.lower():
+            raise TizenLaunchError(reply.strip() or "No reply from the TV")
+        return reply.strip()
 
     async def install(
         self,

@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
     ConfigSubentryFlow,
+    OptionsFlow,
     SubentryFlowResult,
 )
 from homeassistant.const import CONF_HOST, CONF_NAME
@@ -22,8 +23,13 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     FileSelector,
     FileSelectorConfig,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -41,6 +47,7 @@ from .const import (
     CONF_AUTHOR_CN,
     CONF_AUTHOR_FILE,
     CONF_AUTHOR_SERIAL,
+    CONF_BROADCAST,
     CONF_CERT_FILE,
     CONF_CERT_ID,
     CONF_CERT_PASSWORD,
@@ -48,11 +55,16 @@ from .const import (
     CONF_CERTIFICATE,
     CONF_DISTRIBUTOR_FILE,
     CONF_EXPIRES,
+    CONF_MAC,
     CONF_PLATFORM,
     CONF_PRERELEASES,
     CONF_PRESET,
     CONF_REPO,
     CONF_SOURCE,
+    CONF_WAKE_ENTITY,
+    CONF_WAKE_METHOD,
+    CONF_WAKE_TIMEOUT,
+    DEFAULT_WAKE_TIMEOUT,
     DOMAIN,
     PLATFORM_TIZEN,
     PRESET_CUSTOM,
@@ -60,8 +72,19 @@ from .const import (
     SUBENTRY_APP,
     SUBENTRY_CERTIFICATE,
     USER_AGENT,
+    WAKE_ENTITY,
+    WAKE_NONE,
+    WAKE_WOL,
 )
-from .drivers.tizen import CertificateError, SdbError, SigningProfile, TizenDevice, load_p12_pair, load_tizenbrew_config
+from .drivers.tizen import (
+    CertificateError,
+    SdbError,
+    SigningProfile,
+    TizenDevice,
+    load_p12_pair,
+    load_tizenbrew_config,
+)
+from .drivers.wol import normalize_mac
 from .github import GitHubClient, GitHubError, NoMatchingAsset
 from .presets import PRESETS
 
@@ -109,13 +132,80 @@ class HabrewConfigFlow(ConfigFlow, domain=DOMAIN):
             }
         )
         return self.async_show_form(
-            step_id="user", data_schema=self.add_suggested_values_to_schema(schema, user_input), errors=errors
+            step_id="user",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
         )
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        return HabrewOptionsFlow()
 
     @classmethod
     @callback
     def async_get_supported_subentry_types(cls, config_entry: ConfigEntry) -> dict[str, type[ConfigSubentryFlow]]:
-        return {SUBENTRY_CERTIFICATE: CertificateSubentryFlow, SUBENTRY_APP: AppSubentryFlow}
+        return {
+            SUBENTRY_CERTIFICATE: CertificateSubentryFlow,
+            SUBENTRY_APP: AppSubentryFlow,
+        }
+
+
+class HabrewOptionsFlow(OptionsFlow):
+    """How to wake the TV before installing or launching apps."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            method = user_input[CONF_WAKE_METHOD]
+            data: dict[str, Any] = {
+                CONF_WAKE_METHOD: method,
+                CONF_WAKE_TIMEOUT: int(user_input[CONF_WAKE_TIMEOUT]),
+            }
+            if method == WAKE_WOL:
+                try:
+                    data[CONF_MAC] = normalize_mac(user_input.get(CONF_MAC, ""))
+                except ValueError:
+                    errors[CONF_MAC] = "invalid_mac"
+                data[CONF_BROADCAST] = (user_input.get(CONF_BROADCAST) or "255.255.255.255").strip()
+            elif method == WAKE_ENTITY:
+                if not user_input.get(CONF_WAKE_ENTITY):
+                    errors[CONF_WAKE_ENTITY] = "entity_required"
+                data[CONF_WAKE_ENTITY] = user_input.get(CONF_WAKE_ENTITY)
+            if not errors:
+                return self.async_create_entry(data=data)
+
+        current = {**self.config_entry.options, **(user_input or {})}
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_WAKE_METHOD, default=WAKE_NONE): SelectSelector(
+                    SelectSelectorConfig(
+                        options=[WAKE_NONE, WAKE_WOL, WAKE_ENTITY],
+                        translation_key="wake_method",
+                        mode=SelectSelectorMode.LIST,
+                    )
+                ),
+                vol.Optional(CONF_MAC): str,
+                vol.Optional(CONF_BROADCAST): str,
+                vol.Optional(CONF_WAKE_ENTITY): EntitySelector(
+                    EntitySelectorConfig(domain=["media_player", "switch", "button", "script", "remote"])
+                ),
+                vol.Required(CONF_WAKE_TIMEOUT, default=DEFAULT_WAKE_TIMEOUT): NumberSelector(
+                    NumberSelectorConfig(
+                        min=10,
+                        max=300,
+                        step=5,
+                        unit_of_measurement="s",
+                        mode=NumberSelectorMode.BOX,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(schema, current),
+            errors=errors,
+        )
 
 
 # ---------------------------------------------------------------------- certificates
@@ -196,7 +286,11 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
                 _LOGGER.debug("Invalid certificate pair: %s", err)
                 errors["base"] = "invalid_cert"
             else:
-                files = {"author.p12": author, "distributor.p12": distributor, "password.txt": password.encode()}
+                files = {
+                    "author.p12": author,
+                    "distributor.p12": distributor,
+                    "password.txt": password.encode(),
+                }
                 if result := await self._async_store(profile, files, errors):
                     return result
         return self.async_show_form(
@@ -221,7 +315,9 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
             return None
         cert_id = uuid.uuid4().hex
         await self.hass.async_add_executor_job(
-            certificates.write_cert_files, certificates.cert_dir(self.hass, entry.entry_id, cert_id), files
+            certificates.write_cert_files,
+            certificates.cert_dir(self.hass, entry.entry_id, cert_id),
+            files,
         )
         expires = profile.author.not_after
         return self.async_create_entry(
@@ -272,7 +368,11 @@ class AppSubentryFlow(ConfigSubentryFlow):
         schema = vol.Schema(
             {
                 vol.Required(CONF_PRESET, default=next(iter(PRESETS))): SelectSelector(
-                    SelectSelectorConfig(options=preset_options, mode=SelectSelectorMode.LIST, translation_key="preset")
+                    SelectSelectorConfig(
+                        options=preset_options,
+                        mode=SelectSelectorMode.LIST,
+                        translation_key="preset",
+                    )
                 ),
                 vol.Required(CONF_CERTIFICATE, default=cert_options[0]["value"]): SelectSelector(
                     SelectSelectorConfig(options=cert_options)
@@ -281,7 +381,9 @@ class AppSubentryFlow(ConfigSubentryFlow):
             }
         )
         return self.async_show_form(
-            step_id="user", data_schema=self.add_suggested_values_to_schema(schema, user_input), errors=errors
+            step_id="user",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
         )
 
     async def async_step_custom(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
@@ -309,7 +411,9 @@ class AppSubentryFlow(ConfigSubentryFlow):
             }
         )
         return self.async_show_form(
-            step_id="custom", data_schema=self.add_suggested_values_to_schema(schema, user_input), errors=errors
+            step_id="custom",
+            data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
         )
 
     async def _async_validate_and_create(

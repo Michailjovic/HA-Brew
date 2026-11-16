@@ -46,7 +46,16 @@ REPO_RX = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 
 @callback
 def async_register(hass: HomeAssistant) -> None:
-    for handler in (ws_overview, ws_catalog, ws_app_add, ws_app_remove, ws_app_install, ws_refresh):
+    for handler in (
+        ws_overview,
+        ws_catalog,
+        ws_app_add,
+        ws_app_remove,
+        ws_app_install,
+        ws_refresh,
+        ws_app_launch,
+        ws_wake,
+    ):
         websocket_api.async_register_command(hass, handler)
 
 
@@ -116,9 +125,11 @@ def _serialize_entry(hass: HomeAssistant, entry: HabrewConfigEntry, catalog: Cat
                 "certificate": cert_titles.get(sub.data.get(CONF_CERTIFICATE, "")),
                 "entity_id": ent_reg.async_get_entity_id("update", DOMAIN, f"{entry.entry_id}_{sid}"),
                 "installed_version": installed.version if installed else None,
+                "app_id": installed.app_id if installed else (release.app_id if release else None),
                 "latest_version": release.version if release else None,
                 "update_available": _is_newer(
-                    release.version if release else None, installed.version if installed else None
+                    release.version if release else None,
+                    installed.version if installed else None,
                 ),
                 "package_id": release.package_id if release else None,
                 "icon": release.icon if release else None,
@@ -162,6 +173,7 @@ def _serialize_entry(hass: HomeAssistant, entry: HabrewConfigEntry, catalog: Cat
         "loaded": loaded,
         "reachable": bool(data and data.reachable),
         "last_update_success": bool(coordinator and coordinator.last_update_success),
+        "wake_method": coordinator.wake_method if coordinator else "none",
         "certificates": certificates,
         "apps": apps,
         "tv_apps": tv_apps,
@@ -189,7 +201,12 @@ async def ws_overview(hass: HomeAssistant, connection: websocket_api.ActiveConne
 
 
 @websocket_api.require_admin
-@websocket_api.websocket_command({vol.Required("type"): "habrew/catalog", vol.Optional("refresh", default=False): bool})
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "habrew/catalog",
+        vol.Optional("refresh", default=False): bool,
+    }
+)
 @websocket_api.async_response
 async def ws_catalog(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
     try:
@@ -249,7 +266,11 @@ async def ws_app_add(hass: HomeAssistant, connection: websocket_api.ActiveConnec
             f"{item.name} ({item.variant})" if len(siblings) > 1 and item.variant else item.name
         )
         unique_id = f"catalog|{item.key}"
-        data = {CONF_SOURCE: SOURCE_CATALOG, CONF_CATALOG_KEY: item.key, CONF_CERTIFICATE: cert.subentry_id}
+        data = {
+            CONF_SOURCE: SOURCE_CATALOG,
+            CONF_CATALOG_KEY: item.key,
+            CONF_CERTIFICATE: cert.subentry_id,
+        }
     else:
         repo = (msg.get("repo") or "").strip().removeprefix("https://github.com/").strip("/")
         pattern = msg.get("asset_pattern") or r"\.wgt$"
@@ -284,14 +305,23 @@ async def ws_app_add(hass: HomeAssistant, connection: websocket_api.ActiveConnec
     if any(s.unique_id == unique_id for s in entry.subentries.values()):
         connection.send_error(msg["id"], "already_configured", "This app is already added to this TV")
         return
-    subentry = ConfigSubentry(data=MappingProxyType(data), subentry_type=SUBENTRY_APP, title=title, unique_id=unique_id)
+    subentry = ConfigSubentry(
+        data=MappingProxyType(data),
+        subentry_type=SUBENTRY_APP,
+        title=title,
+        unique_id=unique_id,
+    )
     hass.config_entries.async_add_subentry(entry, subentry)
     connection.send_result(msg["id"], {"subentry_id": subentry.subentry_id})
 
 
 @websocket_api.require_admin
 @websocket_api.websocket_command(
-    {vol.Required("type"): "habrew/app/remove", vol.Required("entry_id"): str, vol.Required("subentry_id"): str}
+    {
+        vol.Required("type"): "habrew/app/remove",
+        vol.Required("entry_id"): str,
+        vol.Required("subentry_id"): str,
+    }
 )
 @websocket_api.async_response
 async def ws_app_remove(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
@@ -310,7 +340,11 @@ async def ws_app_remove(hass: HomeAssistant, connection: websocket_api.ActiveCon
 
 @websocket_api.require_admin
 @websocket_api.websocket_command(
-    {vol.Required("type"): "habrew/app/install", vol.Required("entry_id"): str, vol.Required("subentry_id"): str}
+    {
+        vol.Required("type"): "habrew/app/install",
+        vol.Required("entry_id"): str,
+        vol.Required("subentry_id"): str,
+    }
 )
 @websocket_api.async_response
 async def ws_app_install(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
@@ -333,4 +367,37 @@ async def ws_refresh(hass: HomeAssistant, connection: websocket_api.ActiveConnec
         connection.send_error(msg["id"], "not_found", str(err))
         return
     await coordinator.async_refresh()
+    connection.send_result(msg["id"])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "habrew/app/launch",
+        vol.Required("entry_id"): str,
+        vol.Required("app_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_app_launch(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    try:
+        coordinator = _coordinator(hass, msg["entry_id"])
+        await coordinator.async_launch(msg["app_id"])
+    except HomeAssistantError as err:
+        connection.send_error(msg["id"], err.translation_key or "launch_failed", str(err))
+        return
+    connection.send_result(msg["id"])
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command({vol.Required("type"): "habrew/wake", vol.Required("entry_id"): str})
+@websocket_api.async_response
+async def ws_wake(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]) -> None:
+    try:
+        coordinator = _coordinator(hass, msg["entry_id"])
+        await coordinator.async_ensure_awake()
+    except HomeAssistantError as err:
+        connection.send_error(msg["id"], err.translation_key or "wake_failed", str(err))
+        return
+    await coordinator.async_refresh_tv()
     connection.send_result(msg["id"])

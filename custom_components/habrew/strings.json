@@ -118,6 +118,13 @@
         "nuvio": "Nuvio TV",
         "custom": "Custom GitHub repository"
       }
+    },
+    "wake_method": {
+      "options": {
+        "none": "Do not wake",
+        "wol": "Wake-on-LAN",
+        "entity": "Turn on an entity (e.g. samsungtv_smart)"
+      }
     }
   },
   "exceptions": {
@@ -156,6 +163,35 @@
     },
     "checksum_mismatch": {
       "message": "The downloaded package does not match the catalog checksum and was not installed."
+    },
+    "wake_failed": {
+      "message": "The TV did not wake up in time. Check the wake-up settings and that Developer Mode is enabled."
+    },
+    "launch_failed": {
+      "message": "The TV could not start the app: {error}"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Wake-up",
+        "description": "How HA-Brew turns the TV on before installing or launching an app. Developer Mode must stay enabled.",
+        "data": {
+          "wake_method": "Wake-up method",
+          "mac": "MAC address (Wake-on-LAN)",
+          "broadcast_address": "Broadcast address",
+          "wake_entity": "Entity to turn on",
+          "wake_timeout": "Wait for the TV (seconds)"
+        },
+        "data_description": {
+          "wake_entity": "For example the media player of the Samsung TV Smart (samsungtv_smart) integration.",
+          "broadcast_address": "Leave empty for 255.255.255.255."
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Invalid MAC address.",
+      "entity_required": "Select an entity."
     }
   }
 }

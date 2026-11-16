@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "habrew"
-VERSION: Final = "0.2.1"
+VERSION: Final = "0.2.3"
 USER_AGENT: Final = f"HA-Brew/{VERSION}"
 
 PLATFORM_TIZEN: Final = "tizen"
@@ -40,6 +40,17 @@ CONF_REPO: Final = "repo"
 CONF_ASSET_PATTERN: Final = "asset_pattern"
 CONF_CERTIFICATE: Final = "certificate"
 CONF_PRERELEASES: Final = "include_prereleases"
+
+# TV options (wake-up)
+CONF_WAKE_METHOD: Final = "wake_method"
+WAKE_NONE: Final = "none"
+WAKE_WOL: Final = "wol"
+WAKE_ENTITY: Final = "entity"
+CONF_MAC: Final = "mac"
+CONF_BROADCAST: Final = "broadcast_address"
+CONF_WAKE_ENTITY: Final = "wake_entity"
+CONF_WAKE_TIMEOUT: Final = "wake_timeout"
+DEFAULT_WAKE_TIMEOUT: Final = 60
 
 UPDATE_INTERVAL: Final = timedelta(minutes=30)
 TV_TIMEOUT: Final = 6

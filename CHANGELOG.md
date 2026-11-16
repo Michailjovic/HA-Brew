@@ -4,6 +4,26 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.3] - 2026-11-16
+
+### Added
+- Waking up the TV. **Configure** on the integration page offers Wake-on-LAN (MAC address, optional broadcast address) or turning on an entity, for example the `media_player` of SamsungTV Smart. Installing, updating and launching wake the TV first and wait until it answers.
+- Launching apps: ▶ next to every installed app in the panel (managed, sideloaded and store apps).
+- Panel: **Turn TV on** button when the TV is offline and a wake-up method is set, plus a shortcut to the wake-up settings.
+- WebSocket commands `habrew/app/launch` and `habrew/wake`.
+
+### Changed
+- Install, Update and Reinstall stay enabled while the TV is off if a wake-up method is set.
+
+## [0.2.2] - 2026-11-16
+
+### Fixed
+- The TV device and the app entities belong to the config entry again, not to app subentries. This removes the Home Assistant warning *"assigns an existing device to a different config subentry"*, which would stop working in HA 2027.8. Existing installs are migrated on startup.
+- Entities of removed apps are deleted from the entity registry.
+
+### Changed
+- Panel: Install, Update and Reinstall are disabled while the TV is off or unreachable, with a hint to turn it on and press *Check now*.
+
 ## [0.2.1] - 2026-11-16
 
 ### Changed

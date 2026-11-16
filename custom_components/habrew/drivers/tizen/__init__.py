@@ -1,6 +1,13 @@
 """Samsung Tizen driver: sdb transport, widget signing and package installation."""
 
-from .device import TizenApp, TizenDevice, TizenDeviceInfo, TizenInstallError, parse_vd_applist
+from .device import (
+    TizenApp,
+    TizenDevice,
+    TizenDeviceInfo,
+    TizenInstallError,
+    TizenLaunchError,
+    parse_vd_applist,
+)
 from .sdb import SdbConnectError, SdbError
 from .signing import (
     CertificateError,
@@ -23,6 +30,7 @@ __all__ = [
     "TizenDevice",
     "TizenDeviceInfo",
     "TizenInstallError",
+    "TizenLaunchError",
     "WgtMetadata",
     "load_p12_pair",
     "load_profile_dir",

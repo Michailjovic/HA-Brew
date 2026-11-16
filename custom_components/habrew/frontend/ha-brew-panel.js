@@ -70,6 +70,13 @@ const STRINGS = {
     loading: "Loading…",
     no_apps: "No apps managed yet. Add one from the catalog, from GitHub, or manage an app below.",
     tv_offline_hint: "The TV is off or not reachable. Versions shown are the last known.",
+    needs_tv_on: "Turn the TV on (Developer Mode must stay enabled) and press Check now.",
+    launch: "Launch",
+    launched: "{app} started on the TV.",
+    wake: "Turn TV on",
+    woke: "The TV is on.",
+    wake_settings: "Wake-up settings",
+    wake_hint: "The TV will be woken up automatically before installing or launching.",
     count: "{n} apps",
     sideloaded_apps: "Other sideloaded apps (not managed)",
     store_apps: "Samsung store and system apps",
@@ -149,6 +156,13 @@ const STRINGS = {
     loading: "Načítám…",
     no_apps: "Zatím žádné spravované aplikace. Přidej je z katalogu, z GitHubu nebo převezmi aplikaci níže.",
     tv_offline_hint: "Televize je vypnutá nebo nedostupná. Zobrazené verze jsou poslední známé.",
+    needs_tv_on: "Zapni televizi (Developer Mode musí zůstat zapnutý) a dej Zkontrolovat.",
+    launch: "Spustit",
+    launched: "{app} spuštěno v televizi.",
+    wake: "Zapnout TV",
+    woke: "Televize je zapnutá.",
+    wake_settings: "Nastavení probuzení",
+    wake_hint: "Před instalací nebo spuštěním se televize sama probudí.",
     count: "{n} aplikací",
     sideloaded_apps: "Další nahrané aplikace (mimo HA-Brew)",
     store_apps: "Aplikace z obchodu Samsung a systémové",
@@ -346,6 +360,15 @@ class HaBrewPanel extends HTMLElement {
       case "form-submit":
         await this._submitForm(el.closest("form"));
         break;
+      case "launch":
+        await this._run(`launch:${el.dataset.app}`, () => this._ws("app/launch", { entry_id: entry, app_id: el.dataset.app }), this.t("launched", { app: el.dataset.title || "" }));
+        break;
+      case "wake":
+        await this._run(`wake:${entry}`, () => this._ws("wake", { entry_id: entry }), this.t("woke"));
+        break;
+      case "wake-settings":
+        this._navigate(`/config/integrations/integration/habrew`);
+        break;
       case "open-config":
         this._navigate(`/config/integrations/integration/habrew`);
         break;
@@ -503,11 +526,13 @@ class HaBrewPanel extends HTMLElement {
       <div class="card-head">
         <div><div class="h1">${esc(tv.title)} ${this._status(tv)}</div><div class="muted">${esc(sub)}</div></div>
         <div class="actions">
+          ${tv.loaded && !tv.reachable && tv.wake_method !== "none" ? `<button class="btn primary" data-action="wake" data-entry="${tv.entry_id}" ${this._busy[`wake:${tv.entry_id}`] ? "disabled" : ""}><ha-icon icon="mdi:power"></ha-icon>${this.t("wake")}</button>` : ""}
           <button class="btn" data-action="refresh" data-entry="${tv.entry_id}" ${busy ? "disabled" : ""}>
             <ha-icon icon="mdi:refresh"></ha-icon>${this.t("refresh")}</button>
+          <button class="icon-btn" title="${this.t("wake_settings")}" data-action="wake-settings"><ha-icon icon="mdi:cog-outline"></ha-icon></button>
         </div>
       </div>
-      ${tv.loaded && !tv.reachable ? `<div class="hint warn">${this.t("tv_offline_hint")}</div>` : ""}
+      ${tv.loaded && !tv.reachable ? `<div class="hint warn">${this.t("tv_offline_hint")} ${tv.wake_method !== "none" ? this.t("wake_hint") : this.t("needs_tv_on")}</div>` : ""}
       <div class="section-title">${this.t("managed")}</div>
       ${managed}
       ${this._form?.kind === "github" && this._form.entry === tv.entry_id ? this._githubForm(tv) : `<div class="add-row"><button class="btn" data-action="form-github" data-entry="${tv.entry_id}"><ha-icon icon="mdi:github"></ha-icon>${this.t("add_github")}</button></div>`}
@@ -515,13 +540,17 @@ class HaBrewPanel extends HTMLElement {
         <div class="table">${sideloaded.map((a) => this._otherRow(tv, a)).join("")}</div>` : ""}
       ${store.length ? `<details class="store"><summary class="section-title">${this.t("store_apps")} <span class="muted">(${this.t("count", { n: store.length })})</span></summary>
         <div class="hint">${this.t("store_hint")}</div>
-        <div class="table">${store.map((a) => this._storeRow(a)).join("")}</div></details>` : ""}
+        <div class="table">${store.map((a) => this._storeRow(tv, a)).join("")}</div></details>` : ""}
     </div>`;
   }
 
   _appRow(tv, a) {
     const progress = this._entityProgress(a);
     const busy = this._busy[`install:${a.subentry_id}`] || progress != null;
+    const off = tv.reachable || tv.wake_method !== "none" ? "" : `disabled title="${this.t("needs_tv_on")}"`;
+    const launchBtn = a.installed_version && a.app_id
+      ? `<button class="icon-btn" title="${this.t("launch")}" data-action="launch" data-entry="${tv.entry_id}" data-app="${esc(a.app_id)}" data-title="${esc(a.title)}" ${off} ${this._busy[`launch:${a.app_id}`] ? "disabled" : ""}><ha-icon icon="mdi:play-circle-outline"></ha-icon></button>`
+      : "";
     const icon = a.icon ? `<img class="app-icon" src="${esc(a.icon)}" alt="">` : `<div class="app-icon ph"><ha-icon icon="mdi:application"></ha-icon></div>`;
     const src = a.source === "catalog" ? this.t("catalog_src") : a.repo ? esc(a.repo) : this.t("github");
     let action;
@@ -531,12 +560,12 @@ class HaBrewPanel extends HTMLElement {
     } else if (!a.latest_version) {
       action = `<span class="muted">—</span>`;
     } else if (!a.installed_version) {
-      action = `<button class="btn primary" data-action="install" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}">${this.t("install")}</button>`;
+      action = `<button class="btn primary" data-action="install" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}" ${off}>${this.t("install")}</button>`;
     } else if (a.update_available) {
-      action = `<button class="btn primary" data-action="install" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}">${this.t("update")}</button>`;
+      action = `<button class="btn primary" data-action="install" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}" ${off}>${this.t("update")}</button>`;
     } else {
       action = `<span class="chip ok">${this.t("up_to_date")}</span>
-        <button class="icon-btn" title="${this.t("reinstall")}" data-action="install" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}"><ha-icon icon="mdi:reload"></ha-icon></button>`;
+        <button class="icon-btn" title="${this.t("reinstall")}" data-action="install" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}" ${off}><ha-icon icon="mdi:reload"></ha-icon></button>`;
     }
     const removeBtn =
       this._confirm === a.subentry_id
@@ -548,7 +577,7 @@ class HaBrewPanel extends HTMLElement {
         ${a.error ? `<div class="err small">${esc(a.error)}</div>` : ""}</div></div>
       <div><span class="ver">${esc(a.installed_version || "—")}</span></div>
       <div><span class="ver ${a.update_available ? "new" : ""}">${esc(a.latest_version || "—")}</span></div>
-      <div class="actions">${action}${removeBtn}</div>
+      <div class="actions">${action}${busy ? "" : launchBtn}${removeBtn}</div>
     </div>`;
   }
 
@@ -561,22 +590,28 @@ class HaBrewPanel extends HTMLElement {
       : `<span class="muted small">${this.t("not_in_catalog")}</span>
          <button class="btn small" data-action="form-github" data-entry="${tv.entry_id}" data-name="${esc(a.title)}"><ha-icon icon="mdi:github"></ha-icon>${this.t("add_github")}</button>`;
     const newest = a.catalog.map((c) => c.version).filter(Boolean).sort().pop();
+    const launchBtn = this._launchBtn(tv, a);
     return `<div class="row">
       <div class="app"><div class="app-icon ph"><ha-icon icon="mdi:television-play"></ha-icon></div>
         <div><div class="app-name">${esc(a.title || a.app_id)}</div><div class="muted small">${esc(a.app_id)}</div></div></div>
       <div><span class="ver">${esc(a.version || "—")}</span></div>
       <div><span class="ver">${esc(newest || "—")}</span></div>
-      <div class="actions">${action}</div>
+      <div class="actions">${action}${launchBtn}</div>
     </div>`;
   }
 
-  _storeRow(a) {
+  _launchBtn(tv, a) {
+    const off = tv.reachable || tv.wake_method !== "none" ? "" : `disabled title="${this.t("needs_tv_on")}"`;
+    return `<button class="icon-btn" title="${this.t("launch")}" data-action="launch" data-entry="${tv.entry_id}" data-app="${esc(a.app_id)}" data-title="${esc(a.title)}" ${off} ${this._busy[`launch:${a.app_id}`] ? "disabled" : ""}><ha-icon icon="mdi:play-circle-outline"></ha-icon></button>`;
+  }
+
+  _storeRow(tv, a) {
     return `<div class="row">
       <div class="app"><div class="app-icon ph"><ha-icon icon="mdi:storefront-outline"></ha-icon></div>
         <div><div class="app-name">${esc(a.title || a.app_id)}</div><div class="muted small">${esc(a.app_id)}</div></div></div>
       <div><span class="ver">${esc(a.version || "—")}</span></div>
       <div></div>
-      <div class="actions"><span class="chip">${this.t(a.origin === "store" ? "origin_store" : "origin_system")}</span></div>
+      <div class="actions"><span class="chip">${this.t(a.origin === "store" ? "origin_store" : "origin_system")}</span>${this._launchBtn(tv, a)}</div>
     </div>`;
   }
 

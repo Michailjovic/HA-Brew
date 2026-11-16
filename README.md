@@ -41,7 +41,7 @@ No Tizen Studio, no PC and no extra add-on are needed. Everything runs inside Ho
 
 HA-Brew adds a **HA-Brew** entry to the sidebar (admins only):
 
-- **TVs**: every app on each TV with the installed and the available version. Install, update, reinstall or remove managed apps. Apps that were installed some other way can be taken over with **Manage**, if the catalog has them.
+- **TVs**: every app on each TV with the installed and the available version. Install, update, reinstall, launch (▶) or remove managed apps. Apps that were installed some other way can be taken over with **Manage**, if the catalog has them.
 - **Catalog**: about 200 community Tizen web apps from the [Apps2Samsung catalog](https://github.com/Apps2Samsung/tizen-community-packages), with search, categories, Tizen version requirements and warnings (root, closed source, self-updating, Partner certificate). Add any of them to a TV and install it right away. Downloads are checked against the catalog's SHA-256.
 - **Certificates**: the signing certificates of each TV, their expiry and which apps use them.
 
@@ -57,6 +57,15 @@ After adding the TV, use the buttons on the integration page:
 2. **Add app**: pick a preset (Nuvio TV) or any GitHub repository plus a regular expression for the release file, for example `\.wgt$`. Then select the certificate.
 
 An `update.<tv>_<app>` entity appears. Press **Install** to update.
+
+### Waking up the TV
+
+A TV in standby does not answer. Under **Configure** on the integration page you can choose how HA-Brew wakes it up before installing or launching an app:
+
+- **Wake-on-LAN**: the TV's MAC address (TV menu: *Settings → Support → About This TV*, or your router). On Samsung TVs enable *Settings → General → Network → Expert Settings → Power On with Mobile*.
+- **Turn on an entity**: for example the `media_player` of the [SamsungTV Smart](https://github.com/ollo69/ha-samsungtv-smart) or the built-in Samsung Smart TV integration. HA-Brew calls `turn_on` on it (`press` for a button, `turn_on` for a script).
+
+HA-Brew then waits until the TV answers (60 s by default) and sends the wake-up once more halfway through.
 
 ## Certificates
 

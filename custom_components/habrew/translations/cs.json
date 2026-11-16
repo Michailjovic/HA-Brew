@@ -118,6 +118,13 @@
         "nuvio": "Nuvio TV",
         "custom": "Vlastní GitHub repozitář"
       }
+    },
+    "wake_method": {
+      "options": {
+        "none": "Nebudit",
+        "wol": "Wake-on-LAN",
+        "entity": "Zapnout entitu (např. samsungtv_smart)"
+      }
     }
   },
   "exceptions": {
@@ -156,6 +163,35 @@
     },
     "checksum_mismatch": {
       "message": "Stažený balíček neodpovídá kontrolnímu součtu z katalogu, instalace byla zastavena."
+    },
+    "wake_failed": {
+      "message": "Televize se nevzbudila včas. Zkontroluj nastavení probuzení a že je zapnutý Developer Mode."
+    },
+    "launch_failed": {
+      "message": "Televize nemohla aplikaci spustit: {error}"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Probuzení televize",
+        "description": "Jak má HA-Brew zapnout televizi před instalací nebo spuštěním aplikace. Developer Mode musí zůstat zapnutý.",
+        "data": {
+          "wake_method": "Způsob probuzení",
+          "mac": "MAC adresa (Wake-on-LAN)",
+          "broadcast_address": "Broadcast adresa",
+          "wake_entity": "Entita, která se zapne",
+          "wake_timeout": "Čekat na televizi (sekundy)"
+        },
+        "data_description": {
+          "wake_entity": "Například media player z integrace Samsung TV Smart (samsungtv_smart).",
+          "broadcast_address": "Prázdné = 255.255.255.255."
+        }
+      }
+    },
+    "error": {
+      "invalid_mac": "Neplatná MAC adresa.",
+      "entity_required": "Vyber entitu."
     }
   }
 }

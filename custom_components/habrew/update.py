@@ -31,9 +31,12 @@ async def async_setup_entry(
     hass: HomeAssistant, entry: HabrewConfigEntry, async_add_entities: AddConfigEntryEntitiesCallback
 ) -> None:
     coordinator = entry.runtime_data
-    for subentry_id, subentry in entry.subentries.items():
-        if subentry.subentry_type == SUBENTRY_APP:
-            async_add_entities([HabrewAppUpdate(coordinator, subentry)], config_subentry_id=subentry_id)
+    # Entities stay on the config entry: all apps share the TV device (see _async_cleanup_registries).
+    async_add_entities(
+        HabrewAppUpdate(coordinator, subentry)
+        for subentry in entry.subentries.values()
+        if subentry.subentry_type == SUBENTRY_APP
+    )
 
 
 class HabrewAppUpdate(CoordinatorEntity[HabrewCoordinator], UpdateEntity):

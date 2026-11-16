@@ -23,12 +23,18 @@ from . import certificates
 from .catalog import CatalogClient, CatalogError
 from .const import (
     CONF_ASSET_PATTERN,
+    CONF_BROADCAST,
     CONF_CATALOG_KEY,
     CONF_CERT_ID,
     CONF_CERTIFICATE,
+    CONF_MAC,
     CONF_PRERELEASES,
     CONF_REPO,
     CONF_SOURCE,
+    CONF_WAKE_ENTITY,
+    CONF_WAKE_METHOD,
+    CONF_WAKE_TIMEOUT,
+    DEFAULT_WAKE_TIMEOUT,
     DOMAIN,
     SOURCE_CATALOG,
     STORAGE_VERSION,
@@ -36,6 +42,9 @@ from .const import (
     TV_TIMEOUT,
     UPDATE_INTERVAL,
     USER_AGENT,
+    WAKE_ENTITY,
+    WAKE_NONE,
+    WAKE_WOL,
 )
 from .drivers.tizen import (
     CertificateError,
@@ -44,12 +53,17 @@ from .drivers.tizen import (
     TizenApp,
     TizenDevice,
     TizenInstallError,
+    TizenLaunchError,
     read_wgt_metadata,
     resign_wgt,
 )
+from .drivers.wol import send_magic_packet
 from .github import GitHubClient, GitHubError
 
 _LOGGER = logging.getLogger(__name__)
+
+WAKE_POLL = 3  # seconds between reachability checks while waking up
+WAKE_SETTLE = 2  # extra wait after the TV starts answering
 
 type HabrewConfigEntry = ConfigEntry[HabrewCoordinator]
 
@@ -102,7 +116,11 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
 
     def __init__(self, hass: HomeAssistant, entry: HabrewConfigEntry) -> None:
         super().__init__(
-            hass, _LOGGER, config_entry=entry, name=f"{DOMAIN} {entry.title}", update_interval=UPDATE_INTERVAL
+            hass,
+            _LOGGER,
+            config_entry=entry,
+            name=f"{DOMAIN} {entry.title}",
+            update_interval=UPDATE_INTERVAL,
         )
         self.device = TizenDevice(entry.data[CONF_HOST])
         self.github = GitHubClient(async_get_clientsession(hass), USER_AGENT)
@@ -206,7 +224,9 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
 
     async def _refresh_github_release(self, data: HabrewData, subentry_id: str, subentry: ConfigSubentry) -> None:
         asset = await self.github.latest_asset(
-            subentry.data[CONF_REPO], subentry.data[CONF_ASSET_PATTERN], subentry.data.get(CONF_PRERELEASES, False)
+            subentry.data[CONF_REPO],
+            subentry.data[CONF_ASSET_PATTERN],
+            subentry.data.get(CONF_PRERELEASES, False),
         )
         current = data.releases.get(subentry_id)
         cache = self._cache_path(subentry_id)
@@ -266,6 +286,82 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         except (OSError, ValueError):
             return None
 
+    # ------------------------------------------------------------------ wake / launch
+
+    @property
+    def wake_method(self) -> str:
+        return self.config_entry.options.get(CONF_WAKE_METHOD, WAKE_NONE)
+
+    async def _probe(self) -> bool:
+        try:
+            await asyncio.wait_for(self.device.get_info(), TV_TIMEOUT * 2)
+        except (SdbError, TimeoutError, OSError):
+            return False
+        return True
+
+    async def async_wake(self) -> None:
+        """Send the configured wake-up (WoL packet or turn_on of an entity)."""
+        opts = self.config_entry.options
+        if self.wake_method == WAKE_WOL:
+            await self.hass.async_add_executor_job(
+                send_magic_packet,
+                opts[CONF_MAC],
+                opts.get(CONF_BROADCAST) or "255.255.255.255",
+            )
+        elif self.wake_method == WAKE_ENTITY:
+            entity_id = opts[CONF_WAKE_ENTITY]
+            domain = entity_id.split(".", 1)[0]
+            if domain == "button":
+                await self.hass.services.async_call("button", "press", {"entity_id": entity_id}, blocking=True)
+            elif domain == "script":
+                await self.hass.services.async_call("script", "turn_on", {"entity_id": entity_id}, blocking=True)
+            else:
+                await self.hass.services.async_call("homeassistant", "turn_on", {"entity_id": entity_id}, blocking=True)
+
+    async def async_ensure_awake(self) -> None:
+        """Make sure the TV answers sdb, waking it up first if configured."""
+        if await self._probe():
+            return
+        if self.wake_method == WAKE_NONE:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="tv_unreachable",
+                translation_placeholders={"error": "offline"},
+            )
+        _LOGGER.debug("Waking up %s via %s", self.config_entry.title, self.wake_method)
+        await self.async_wake()
+        loop = asyncio.get_running_loop()
+        timeout = self.config_entry.options.get(CONF_WAKE_TIMEOUT, DEFAULT_WAKE_TIMEOUT)
+        start = loop.time()
+        resent = False
+        while loop.time() - start < timeout:
+            await asyncio.sleep(WAKE_POLL)
+            if await self._probe():
+                await asyncio.sleep(WAKE_SETTLE)  # sdbd answers a moment before the app manager is ready
+                return
+            if not resent and loop.time() - start > timeout / 2:
+                await self.async_wake()  # a second attempt helps TVs in deep standby
+                resent = True
+        raise HomeAssistantError(translation_domain=DOMAIN, translation_key="wake_failed")
+
+    async def async_launch(self, app_id: str) -> None:
+        await self.async_ensure_awake()
+        try:
+            async with self.tv_lock:
+                await self.device.launch(app_id)
+        except TizenLaunchError as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="launch_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        except (SdbError, TimeoutError, OSError) as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="tv_unreachable",
+                translation_placeholders={"error": str(err)},
+            ) from err
+
     # ------------------------------------------------------------------ install
 
     def _set_progress(self, subentry_id: str, pct: int | None) -> None:
@@ -302,13 +398,18 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
 
         report(1)
         try:
+            await self.async_ensure_awake()
             await self._install(subentry_id, release, cert_subentry, report)
         finally:
             self._set_progress(subentry_id, None)
         await self.async_refresh_tv()
 
     async def _install(
-        self, subentry_id: str, release: AppRelease, cert_subentry: ConfigSubentry, report: Callable[[int], None]
+        self,
+        subentry_id: str,
+        release: AppRelease,
+        cert_subentry: ConfigSubentry,
+        report: Callable[[int], None],
     ) -> None:
         cache = self._cache_path(subentry_id)
         package = await self.hass.async_add_executor_job(self._read_cache, cache, release.url)
@@ -327,7 +428,10 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         report(5)
         try:
             profile = await self.hass.async_add_executor_job(
-                certificates.load_profile, self.hass, self.config_entry.entry_id, cert_subentry.data[CONF_CERT_ID]
+                certificates.load_profile,
+                self.hass,
+                self.config_entry.entry_id,
+                cert_subentry.data[CONF_CERT_ID],
             )
             signed = await self.hass.async_add_executor_job(resign_wgt, package, profile)
         except (CertificateError, OSError) as err:
@@ -353,7 +457,10 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key=key,
-                translation_placeholders={"error": str(err), "certificate": cert_subentry.title},
+                translation_placeholders={
+                    "error": str(err),
+                    "certificate": cert_subentry.title,
+                },
             ) from err
         except SdbConnectError as err:
             raise HomeAssistantError(

@@ -133,7 +133,7 @@ async def test_panel_registered(hass: HomeAssistant, tv) -> None:
     assert "ha-brew" in hass.data["frontend_panels"]
 
 
-async def test_ws_flow(hass: HomeAssistant, tv, hass_ws_client, sdbd) -> None:
+async def test_ws_flow(hass: HomeAssistant, tv, hass_ws_client, sdbd, caplog) -> None:
     entry, download = tv
     client = await hass_ws_client(hass)
 
@@ -194,6 +194,12 @@ async def test_ws_flow(hass: HomeAssistant, tv, hass_ws_client, sdbd) -> None:
     assert (await client.receive_json())["success"]
     await hass.async_block_till_done()
     assert all(s.subentry_type != "app" for s in entry.subentries.values())
+    assert hass.states.get(app["entity_id"]) is None
+    from homeassistant.helpers import device_registry as dr
+
+    [device] = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    assert device.config_subentry_id is None
+    assert "assigns an existing device" not in caplog.text
 
 
 async def test_ws_checksum_mismatch(hass: HomeAssistant, tv, hass_ws_client, sdbd) -> None:

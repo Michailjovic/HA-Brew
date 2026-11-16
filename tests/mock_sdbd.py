@@ -23,6 +23,8 @@ class MockSdbd:
         self.install_result = "ok"  # ok | author_mismatch
         self.pushed: bytes | None = None
         self.installs: list[str] = []
+        self.launched: list[str] = []
+        self.awake = True  # False = TV in standby, connections are dropped
         self.port = 0
         self._server: asyncio.base_events.Server | None = None
 
@@ -50,6 +52,9 @@ class MockSdbd:
             w.write(_H.pack(cmd, a0, a1, len(data), sum(data) & 0xFFFFFFFF, cmd ^ 0xFFFFFFFF) + data)
             await w.drain()
 
+        if not self.awake:
+            w.close()
+            return
         rid = 100
         streams: dict[int, dict] = {}
         try:
@@ -87,6 +92,12 @@ class MockSdbd:
             return self._applist()
         if svc == "capability:":
             return "platform_version:9.0\nsdk_toolpath:/home/owner/share/tmp/sdk_tools\n"
+        if svc.startswith("shell:0 was_execute"):
+            app_id = svc.split()[2]
+            if any(a[0] == app_id for a in self.apps.values()):
+                self.launched.append(app_id)
+                return f"app_id[{app_id.split('.')[0]}] launched\n"
+            return f"app_id[{app_id}] launch failed[-1]\n"
         if svc.startswith("shell:0 vd_appinstall"):
             ident = svc.split()[2]
             self.installs.append(ident)
