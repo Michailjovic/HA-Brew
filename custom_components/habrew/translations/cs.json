@@ -1,0 +1,149 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Přidat televizi",
+        "description": "Na televizi zapni Developer Mode, nastav **Host PC IP** na IP adresu tohoto Home Assistantu a televizi restartuj.",
+        "data": {
+          "name": "Název",
+          "host": "IP adresa televize",
+          "platform": "Platforma"
+        },
+        "data_description": {
+          "host": "Televize musí být zapnutá a v Developer Mode."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nelze se připojit k televizi. Zkontroluj, že je zapnutá, má zapnutý Developer Mode a Host PC IP je nastavená na IP tohoto Home Assistantu."
+    },
+    "abort": {
+      "already_configured": "Tato televize už je přidaná."
+    }
+  },
+  "config_subentries": {
+    "certificate": {
+      "entry_type": "Podpisový certifikát",
+      "initiate_flow": {
+        "user": "Přidat certifikát"
+      },
+      "step": {
+        "user": {
+          "title": "Přidat podpisový certifikát",
+          "description": "Aplikaci lze aktualizovat jen **stejným autorským certifikátem**, kterým byla nainstalována, jinak televize aktualizaci odmítne.",
+          "data": {
+            "name": "Název",
+            "cert_type": "Formát certifikátu"
+          }
+        },
+        "tizenbrew": {
+          "title": "Certifikát z TizenBrew Installeru",
+          "description": "Nahraj `tizenbrewInstallerConfig.json` (je ve složce `%USERPROFILE%\\share\\` na počítači, kde běžel TizenBrew Installer).",
+          "data": {
+            "cert_file": "tizenbrewInstallerConfig.json"
+          }
+        },
+        "p12": {
+          "title": "Dvojice certifikátů PKCS#12",
+          "description": "Nahraj `author.p12` a `distributor.p12` (Apps2Samsung: `%APPDATA%\\Apps2Samsung\\Certificate\\<profil>`, heslo je v `password.txt`).",
+          "data": {
+            "author_file": "author.p12",
+            "distributor_file": "distributor.p12",
+            "password": "Heslo"
+          }
+        }
+      },
+      "error": {
+        "invalid_cert": "Certifikát nejde otevřít (špatný soubor nebo heslo).",
+        "wrong_device": "Tento distributorský certifikát nebyl vydán pro tuto televizi (nesedí DUID)."
+      },
+      "abort": {
+        "already_configured": "Tento certifikát už je přidaný."
+      }
+    },
+    "app": {
+      "entry_type": "Aplikace",
+      "initiate_flow": {
+        "user": "Přidat aplikaci"
+      },
+      "step": {
+        "user": {
+          "title": "Přidat aplikaci",
+          "description": "Vyber známou aplikaci nebo vlastní GitHub repozitář a certifikát, kterým byla aplikace nainstalována.",
+          "data": {
+            "preset": "Aplikace",
+            "certificate": "Podpisový certifikát",
+            "include_prereleases": "Včetně předběžných verzí"
+          }
+        },
+        "custom": {
+          "title": "Vlastní GitHub repozitář",
+          "data": {
+            "name": "Název",
+            "repo": "Repozitář (vlastník/název)",
+            "asset_pattern": "Soubor z release (regulární výraz)"
+          },
+          "data_description": {
+            "asset_pattern": "Který soubor z release instalovat, např. `\\.wgt$`."
+          }
+        }
+      },
+      "error": {
+        "invalid_repo": "Zadej ve tvaru vlastník/název.",
+        "invalid_pattern": "Neplatný regulární výraz.",
+        "no_asset": "Žádný release tohoto repozitáře neobsahuje odpovídající soubor.",
+        "github_error": "GitHub není dostupný nebo repozitář neexistuje."
+      },
+      "abort": {
+        "no_certificates": "Nejdřív k této televizi přidej podpisový certifikát.",
+        "already_configured": "Tato aplikace už je přidaná.",
+        "github_error": "GitHub není dostupný."
+      }
+    }
+  },
+  "selector": {
+    "platform": {
+      "options": {
+        "tizen": "Samsung (Tizen)"
+      }
+    },
+    "cert_type": {
+      "options": {
+        "tizenbrew": "TizenBrew Installer (tizenbrewInstallerConfig.json)",
+        "p12": "author.p12 + distributor.p12 (Apps2Samsung, Tizen Studio)"
+      }
+    },
+    "preset": {
+      "options": {
+        "nuvio": "Nuvio TV",
+        "custom": "Vlastní GitHub repozitář"
+      }
+    }
+  },
+  "exceptions": {
+    "no_release": {
+      "message": "O aplikaci {app} zatím není znám žádný release. Počkej na další kontrolu nebo zkontroluj repozitář."
+    },
+    "certificate_missing": {
+      "message": "Certifikát této aplikace byl odebrán. Nastav aplikaci znovu."
+    },
+    "certificate_invalid": {
+      "message": "Podpisový certifikát nejde použít: {error}"
+    },
+    "install_author_mismatch": {
+      "message": "Televize aktualizaci odmítla: aplikace byla nainstalována jiným autorským certifikátem než „{certificate}“. Použij certifikát, kterým byla aplikace původně nainstalována."
+    },
+    "install_certificate": {
+      "message": "Televize odmítla podpis ({error}). Certifikát mohl vypršet nebo nebyl vydán pro tuto televizi."
+    },
+    "install_platform": {
+      "message": "Balíček není kompatibilní s verzí Tizenu v televizi ({error})."
+    },
+    "install_failed": {
+      "message": "Instalace selhala: {error}"
+    },
+    "tv_unreachable": {
+      "message": "Televize není dostupná. Zapni ji a zkontroluj Developer Mode ({error})."
+    }
+  }
+}

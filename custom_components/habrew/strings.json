@@ -1,0 +1,149 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add a TV",
+        "description": "Enable Developer Mode on the TV and set its **Host PC IP** to the IP address of this Home Assistant, then restart the TV.",
+        "data": {
+          "name": "Name",
+          "host": "TV IP address",
+          "platform": "Platform"
+        },
+        "data_description": {
+          "host": "The TV must be on and in Developer Mode."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the TV. Check that it is on, Developer Mode is enabled and Host PC IP is set to this Home Assistant's IP address."
+    },
+    "abort": {
+      "already_configured": "This TV is already configured."
+    }
+  },
+  "config_subentries": {
+    "certificate": {
+      "entry_type": "Signing certificate",
+      "initiate_flow": {
+        "user": "Add certificate"
+      },
+      "step": {
+        "user": {
+          "title": "Add signing certificate",
+          "description": "Apps must be updated with the **same author certificate** they were installed with, otherwise the TV refuses the update.",
+          "data": {
+            "name": "Name",
+            "cert_type": "Certificate format"
+          }
+        },
+        "tizenbrew": {
+          "title": "TizenBrew Installer certificate",
+          "description": "Upload `tizenbrewInstallerConfig.json` (found in `%USERPROFILE%\\share\\` on the computer where TizenBrew Installer ran).",
+          "data": {
+            "cert_file": "tizenbrewInstallerConfig.json"
+          }
+        },
+        "p12": {
+          "title": "PKCS#12 certificate pair",
+          "description": "Upload `author.p12` and `distributor.p12` (Apps2Samsung: `%APPDATA%\\Apps2Samsung\\Certificate\\<profile>`, password is in `password.txt`).",
+          "data": {
+            "author_file": "author.p12",
+            "distributor_file": "distributor.p12",
+            "password": "Password"
+          }
+        }
+      },
+      "error": {
+        "invalid_cert": "The certificate could not be opened (wrong file or password).",
+        "wrong_device": "This distributor certificate was not issued for this TV (DUID does not match)."
+      },
+      "abort": {
+        "already_configured": "This certificate is already added."
+      }
+    },
+    "app": {
+      "entry_type": "App",
+      "initiate_flow": {
+        "user": "Add app"
+      },
+      "step": {
+        "user": {
+          "title": "Add app",
+          "description": "Choose a known app or a custom GitHub repository and the certificate the app was installed with.",
+          "data": {
+            "preset": "App",
+            "certificate": "Signing certificate",
+            "include_prereleases": "Include pre-releases"
+          }
+        },
+        "custom": {
+          "title": "Custom GitHub repository",
+          "data": {
+            "name": "Name",
+            "repo": "Repository (owner/name)",
+            "asset_pattern": "Release asset (regular expression)"
+          },
+          "data_description": {
+            "asset_pattern": "Which file of a release to install, e.g. `\\.wgt$`."
+          }
+        }
+      },
+      "error": {
+        "invalid_repo": "Use the form owner/name.",
+        "invalid_pattern": "Invalid regular expression.",
+        "no_asset": "No release of this repository contains a matching file.",
+        "github_error": "GitHub could not be reached or the repository does not exist."
+      },
+      "abort": {
+        "no_certificates": "Add a signing certificate to this TV first.",
+        "already_configured": "This app is already added.",
+        "github_error": "GitHub could not be reached."
+      }
+    }
+  },
+  "selector": {
+    "platform": {
+      "options": {
+        "tizen": "Samsung (Tizen)"
+      }
+    },
+    "cert_type": {
+      "options": {
+        "tizenbrew": "TizenBrew Installer (tizenbrewInstallerConfig.json)",
+        "p12": "author.p12 + distributor.p12 (Apps2Samsung, Tizen Studio)"
+      }
+    },
+    "preset": {
+      "options": {
+        "nuvio": "Nuvio TV",
+        "custom": "Custom GitHub repository"
+      }
+    }
+  },
+  "exceptions": {
+    "no_release": {
+      "message": "No release of {app} is known yet. Wait for the next check or check the repository."
+    },
+    "certificate_missing": {
+      "message": "The certificate of this app was removed. Reconfigure the app."
+    },
+    "certificate_invalid": {
+      "message": "The signing certificate could not be used: {error}"
+    },
+    "install_author_mismatch": {
+      "message": "The TV refused the update: the app was installed with a different author certificate than \"{certificate}\". Use the certificate the app was originally installed with."
+    },
+    "install_certificate": {
+      "message": "The TV rejected the signature ({error}). The certificate may have expired or was not issued for this TV."
+    },
+    "install_platform": {
+      "message": "This package is not compatible with the TV's Tizen version ({error})."
+    },
+    "install_failed": {
+      "message": "Installation failed: {error}"
+    },
+    "tv_unreachable": {
+      "message": "The TV is not reachable. Turn it on and make sure Developer Mode is enabled ({error})."
+    }
+  }
+}
