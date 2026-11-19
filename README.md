@@ -6,7 +6,7 @@ HA-Brew downloads new releases of TV apps from GitHub or a community catalog and
 
 On LG TVs HA-Brew also keeps the **Developer Mode session** alive, so your homebrew apps are not wiped after 1000 hours.
 
-> **Status: early preview (0.3.x).** Samsung Tizen and LG webOS (without root).
+> **Status: early preview (0.4.x).** Samsung Tizen and LG webOS (without root).
 
 ![HA-Brew panel](docs/panel.png)
 
@@ -101,9 +101,12 @@ HA-Brew then waits until the TV answers (60 s by default) and sends the wake-up 
 
 ## Certificates (Samsung)
 
-A Tizen app can only be updated with the **same author certificate** it was first installed with. If you get the error *"Author certificate not match"*, the app was installed with another tool's certificate. Find that certificate and add it. If you can't find it, the only option is to uninstall the app on the TV and install it fresh through HA-Brew, which loses the app's data.
+A Tizen app can only be updated with the **same author certificate** it was installed with.
 
-Certificates are stored in `<config>/.storage/habrew/`, which is not reachable over the web. Samsung certificates expire after about a year. HA-Brew shows the expiry date of each certificate.
+- **Create one with HA-Brew** (*Add certificate → Create a new certificate*): sign in with a free Samsung account; Home Assistant creates the keys, has Samsung issue an author and a distributor certificate for all your Samsung TVs and stores them. Samsung only sends the sign-in result to `localhost:4794` on the computer with the browser, so the dialog gives you a one-line command (PowerShell or `curl | python3`) that opens the sign-in and passes the result to Home Assistant. Nothing is installed.
+- **Upload an existing one**: `tizenbrewInstallerConfig.json` from TizenBrew Installer, or `author.p12` + `distributor.p12` from Apps2Samsung / Tizen Studio.
+
+Certificates are stored in Home Assistant's private `.storage` folder, never in `/config/www`. Samsung's public CA certificates are bundled (`drivers/tizen/ca/`). See the [installation guide](docs/installation.md#23-add-the-signing-certificate) for details.
 
 ## Reporting problems
 
@@ -141,9 +144,8 @@ mode: single
 - [x] Samsung Tizen: sdb transport, package signing, update entities
 - [x] App catalog (Apps2Samsung community packages) and a sidebar panel to browse and install apps
 - [ ] Native `.tpk` packages
-- [ ] Creating Samsung certificates from Home Assistant
+- [x] Creating Samsung certificates from Home Assistant (Samsung account sign-in)
 - [x] LG webOS (Developer Mode: SSH install, automatic Developer Mode renewal, webOS Homebrew catalog)
-- [ ] Automatic updates without an automation
 - [ ] Certificate renewal helper
 
 ## Credits

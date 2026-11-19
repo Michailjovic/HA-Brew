@@ -15,7 +15,7 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers import translation
 from homeassistant.helpers.typing import ConfigType
 
-from . import certificates, websocket_api
+from . import certificates, samsung_login, websocket_api
 from .const import (
     CONF_CERT_ID,
     DOMAIN,
@@ -36,8 +36,9 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Register the WebSocket API and the sidebar panel."""
+    """Register the WebSocket API, the Samsung sign-in relay and the sidebar panel."""
     websocket_api.async_register(hass)
+    samsung_login.async_register(hass)
     await translation.async_load_integrations(hass, {DOMAIN})
     await hass.http.async_register_static_paths(
         [StaticPathConfig(STATIC_URL, str(Path(__file__).parent / "frontend"), cache_headers=False)]

@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-11-20
+
+### Added
+- **Create Samsung certificates in Home Assistant** (*Add certificate → Create a new certificate (Samsung account)*), without Tizen Studio, Apps2Samsung or TizenBrew:
+  - Home Assistant creates the keys and CSRs, has Samsung issue an author and a distributor certificate (Public or Partner) for every Samsung TV in HA-Brew plus optional extra DUIDs, and stores them like an uploaded `.p12` pair.
+  - Samsung only returns the sign-in to `http://localhost:4794` on the computer with the browser. The dialog shows a one-line command (Windows PowerShell, or `curl | python3` on macOS/Linux) that downloads a small helper from Home Assistant, opens the Samsung sign-in, catches the result once and forwards it. One-time link, valid 15 minutes. Nothing is installed.
+  - Later certificates reuse the same author key.
+  - Clear messages for an account without e-mail, rate limiting and a rejected sign-in.
+- Samsung's public VD CA certificates are bundled (`drivers/tizen/ca/`, from tizen-cert-cli, MIT).
+- Installation guide: section on creating a certificate, new troubleshooting rows.
+
+### Changed
+- The certificate name is optional (defaults to the certificate type or the account e-mail).
+- Diagnostics also redact DUID lists of certificates.
+
 ## [0.3.1] - 2026-11-19
 
 ### Added

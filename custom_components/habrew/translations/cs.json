@@ -48,11 +48,11 @@
       },
       "step": {
         "user": {
-          "title": "Přidat podpisový certifikát",
-          "description": "Aplikaci lze aktualizovat jen **stejným autorským certifikátem**, kterým byla nainstalována, jinak televize aktualizaci odmítne.",
+          "title": "Podpisový certifikát",
+          "description": "Vytvoř nový certifikát přes svůj účet Samsung, nebo nahraj certifikát, který už máš. Nainstalovanou aplikaci lze aktualizovat jen **stejným autorským certifikátem**, kterým byla nainstalována.",
           "data": {
-            "name": "Název",
-            "cert_type": "Formát certifikátu"
+            "cert_type": "Certifikát",
+            "name": "Název (nepovinné)"
           }
         },
         "tizenbrew": {
@@ -70,14 +70,39 @@
             "distributor_file": "distributor.p12",
             "password": "Heslo"
           }
+        },
+        "samsung": {
+          "title": "Nový certifikát (účet Samsung)",
+          "description": "Certifikát bude vydaný pro tyto televize: **{duids}**. Na další stránce se přihlásíš účtem Samsung; budeš potřebovat počítač ve stejné síti. Stačí bezplatný účet: [account.samsung.com](https://account.samsung.com).",
+          "data": {
+            "author_cn": "Jméno autora",
+            "privilege": "Úroveň oprávnění",
+            "extra_duids": "Další televize (DUID)"
+          },
+          "data_description": {
+            "author_cn": "Objeví se v certifikátu. Cokoli, třeba tvoje jméno.",
+            "privilege": "Public stačí skoro všem aplikacím. Partner jen pro aplikace, které ho výslovně vyžadují.",
+            "extra_duids": "Nepovinné: DUID televizí Samsung, které v HA-Brew nejsou, oddělené čárkou."
+          }
         }
       },
       "error": {
         "invalid_cert": "Certifikát nejde otevřít (špatný soubor nebo heslo).",
-        "wrong_device": "Tento distributorský certifikát nebyl vydán pro tuto televizi (nesedí DUID)."
+        "wrong_device": "Tento distributorský certifikát nebyl vydán pro tuto televizi (nesedí DUID).",
+        "invalid_duid": "DUID obsahuje nepovolené znaky.",
+        "too_many_duids": "Samsung povoluje nejvýš 50 televizí na certifikát.",
+        "no_duid": "Není žádná televize, pro kterou certifikát vydat."
       },
       "abort": {
-        "already_configured": "Tento certifikát už je přidaný."
+        "already_configured": "Tento certifikát už je přidaný.",
+        "samsung_timeout": "Přihlášení nedorazilo do 15 minut. Začni znovu.",
+        "samsung_rate_limited": "Samsung odmítl: příliš mnoho požadavků. Zkus to za hodinu.",
+        "samsung_no_email": "Tvůj účet Samsung nemá e-mailovou adresu. Doplň ji na {profile_url} a zkus to znovu.",
+        "samsung_auth": "Samsung nepřijal přihlášení ({error}). Začni znovu.",
+        "samsung_failed": "Vytvoření certifikátu selhalo: {error}"
+      },
+      "progress": {
+        "samsung_login": "**Na počítači ve stejné síti jako Home Assistant** spusť tento příkaz (otevře přihlášení Samsungu v prohlížeči a výsledek předá Home Assistantu):\n\n**Windows** – stiskni Win + R, vlož, Enter:\n```\n{windows}\n```\n\n**macOS / Linux** – v Terminálu:\n```\n{unix}\n```\n\nPak se v prohlížeči přihlas účtem Samsung. Tento dialog pak pokračuje sám (čeká až 15 minut)."
       }
     },
     "app": {
@@ -130,7 +155,8 @@
     "cert_type": {
       "options": {
         "tizenbrew": "TizenBrew Installer (tizenbrewInstallerConfig.json)",
-        "p12": "author.p12 + distributor.p12 (Apps2Samsung, Tizen Studio)"
+        "p12": "author.p12 + distributor.p12 (Apps2Samsung, Tizen Studio)",
+        "samsung": "Vytvořit nový certifikát (účet Samsung)"
       }
     },
     "preset": {
@@ -146,6 +172,12 @@
         "none": "Nebudit",
         "wol": "Wake-on-LAN",
         "entity": "Zapnout entitu (např. samsungtv_smart, webostv)"
+      }
+    },
+    "privilege": {
+      "options": {
+        "Public": "Public",
+        "Partner": "Partner"
       }
     }
   },

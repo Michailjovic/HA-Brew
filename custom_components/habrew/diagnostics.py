@@ -41,6 +41,8 @@ TO_REDACT = {
     "password",
     "token",
     "devmode_token",
+    "duids",
+    "extra_duids",
 }
 LIVE_TIMEOUT = 45
 

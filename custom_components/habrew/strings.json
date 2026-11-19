@@ -48,11 +48,11 @@
       },
       "step": {
         "user": {
-          "title": "Add signing certificate",
-          "description": "Apps must be updated with the **same author certificate** they were installed with, otherwise the TV refuses the update.",
+          "title": "Signing certificate",
+          "description": "Create a new certificate with your Samsung account, or upload one you already have. An installed app can only be updated with **the same author certificate** it was installed with.",
           "data": {
-            "name": "Name",
-            "cert_type": "Certificate format"
+            "cert_type": "Certificate",
+            "name": "Name (optional)"
           }
         },
         "tizenbrew": {
@@ -70,14 +70,39 @@
             "distributor_file": "distributor.p12",
             "password": "Password"
           }
+        },
+        "samsung": {
+          "title": "New certificate (Samsung account)",
+          "description": "The certificate will be issued for these TVs: **{duids}**. On the next page you sign in with your Samsung account; you need a computer in the same network. A free account is enough: [account.samsung.com](https://account.samsung.com).",
+          "data": {
+            "author_cn": "Author name",
+            "privilege": "Privilege level",
+            "extra_duids": "Other TVs (DUID)"
+          },
+          "data_description": {
+            "author_cn": "Shown in the certificate. Anything, e.g. your name.",
+            "privilege": "Public is enough for almost all apps. Partner only for apps that say they need it.",
+            "extra_duids": "Optional: DUIDs of Samsung TVs that are not in HA-Brew, separated by commas."
+          }
         }
       },
       "error": {
         "invalid_cert": "The certificate could not be opened (wrong file or password).",
-        "wrong_device": "This distributor certificate was not issued for this TV (DUID does not match)."
+        "wrong_device": "This distributor certificate was not issued for this TV (DUID does not match).",
+        "invalid_duid": "A DUID contains invalid characters.",
+        "too_many_duids": "Samsung allows at most 50 TVs per certificate.",
+        "no_duid": "No TV to issue the certificate for."
       },
       "abort": {
-        "already_configured": "This certificate is already added."
+        "already_configured": "This certificate is already added.",
+        "samsung_timeout": "No sign-in arrived within 15 minutes. Start again.",
+        "samsung_rate_limited": "Samsung refused: too many requests. Try again in an hour.",
+        "samsung_no_email": "Your Samsung account has no e-mail address. Add one at {profile_url} and try again.",
+        "samsung_auth": "Samsung did not accept the sign-in ({error}). Start again.",
+        "samsung_failed": "Creating the certificate failed: {error}"
+      },
+      "progress": {
+        "samsung_login": "**On a computer in the same network as Home Assistant**, run this command (it opens the Samsung sign-in in the browser and passes the result to Home Assistant):\n\n**Windows** – press Win + R, paste, press Enter:\n```\n{windows}\n```\n\n**macOS / Linux** – in Terminal:\n```\n{unix}\n```\n\nThen sign in with your Samsung account in the browser. This dialog continues by itself (waits up to 15 minutes)."
       }
     },
     "app": {
@@ -130,7 +155,8 @@
     "cert_type": {
       "options": {
         "tizenbrew": "TizenBrew Installer (tizenbrewInstallerConfig.json)",
-        "p12": "author.p12 + distributor.p12 (Apps2Samsung, Tizen Studio)"
+        "p12": "author.p12 + distributor.p12 (Apps2Samsung, Tizen Studio)",
+        "samsung": "Create a new certificate (Samsung account)"
       }
     },
     "preset": {
@@ -146,6 +172,12 @@
         "none": "Do not wake",
         "wol": "Wake-on-LAN",
         "entity": "Turn on an entity (e.g. samsungtv_smart, webostv)"
+      }
+    },
+    "privilege": {
+      "options": {
+        "Public": "Public",
+        "Partner": "Partner"
       }
     }
   },

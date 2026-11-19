@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "habrew"
-VERSION: Final = "0.3.1"
+VERSION: Final = "0.4.0"
 USER_AGENT: Final = f"HA-Brew/{VERSION}"
 
 PLATFORM_TIZEN: Final = "tizen"
@@ -28,6 +28,10 @@ SUBENTRY_APP: Final = "app"
 CONF_CERT_TYPE: Final = "cert_type"
 CERT_TYPE_TIZENBREW: Final = "tizenbrew"
 CERT_TYPE_P12: Final = "p12"
+CERT_TYPE_SAMSUNG: Final = "samsung"  # created by HA-Brew through a Samsung account
+CONF_PRIVILEGE: Final = "privilege"
+CONF_EXTRA_DUIDS: Final = "extra_duids"
+CONF_DUIDS: Final = "duids"
 CONF_CERT_ID: Final = "cert_id"
 CONF_CERT_FILE: Final = "cert_file"
 CONF_AUTHOR_FILE: Final = "author_file"

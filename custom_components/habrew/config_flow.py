@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -40,9 +41,10 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from . import certificates
+from . import certificates, samsung_login
 from .const import (
     CERT_TYPE_P12,
+    CERT_TYPE_SAMSUNG,
     CERT_TYPE_TIZENBREW,
     CONF_ASSET_PATTERN,
     CONF_AUTHOR_CN,
@@ -55,12 +57,15 @@ from .const import (
     CONF_CERT_TYPE,
     CONF_CERTIFICATE,
     CONF_DISTRIBUTOR_FILE,
+    CONF_DUIDS,
     CONF_EXPIRES,
+    CONF_EXTRA_DUIDS,
     CONF_MAC,
     CONF_PASSPHRASE,
     CONF_PLATFORM,
     CONF_PRERELEASES,
     CONF_PRESET,
+    CONF_PRIVILEGE,
     CONF_REPO,
     CONF_SERIAL,
     CONF_SOURCE,
@@ -89,6 +94,7 @@ from .drivers.tizen import (
     TizenDevice,
     load_p12_pair,
     load_tizenbrew_config,
+    samsung_cert,
 )
 from .drivers.webos import WebosDevice, WebosDeviceInfo, fetch_key, load_key
 from .drivers.wol import normalize_mac
@@ -332,14 +338,20 @@ def _profile_matches_duid(profile: SigningProfile, duid: str) -> bool:
 
 
 class CertificateSubentryFlow(ConfigSubentryFlow):
-    """Upload a Samsung signing certificate."""
+    """Create a Samsung signing certificate or upload an existing one."""
 
     def __init__(self) -> None:
         self._name = ""
+        self._samsung: dict[str, Any] = {}
+        self._login_token: str | None = None
+        self._login_task: asyncio.Task | None = None
+        self._session: samsung_cert.SamsungSession | None = None
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
         if user_input is not None:
-            self._name = user_input[CONF_NAME]
+            self._name = (user_input.get(CONF_NAME) or "").strip()
+            if user_input[CONF_CERT_TYPE] == CERT_TYPE_SAMSUNG:
+                return await self.async_step_samsung()
             if user_input[CONF_CERT_TYPE] == CERT_TYPE_TIZENBREW:
                 return await self.async_step_tizenbrew()
             return await self.async_step_p12()
@@ -347,17 +359,144 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_NAME, default="TizenBrew"): str,
-                    vol.Required(CONF_CERT_TYPE, default=CERT_TYPE_TIZENBREW): SelectSelector(
+                    vol.Required(CONF_CERT_TYPE, default=CERT_TYPE_SAMSUNG): SelectSelector(
                         SelectSelectorConfig(
-                            options=[CERT_TYPE_TIZENBREW, CERT_TYPE_P12],
+                            options=[CERT_TYPE_SAMSUNG, CERT_TYPE_TIZENBREW, CERT_TYPE_P12],
                             translation_key="cert_type",
                             mode=SelectSelectorMode.LIST,
                         )
                     ),
+                    vol.Optional(CONF_NAME): str,
                 }
             ),
         )
+
+    # ------------------------------------------------------------------ new certificate (Samsung account)
+
+    def _known_duids(self) -> list[str]:
+        """DUIDs of every Samsung TV in HA-Brew: one certificate then works on all of them."""
+        duids = [self._get_entry().data.get("duid", "")]
+        duids += [
+            e.data.get("duid", "")
+            for e in self.hass.config_entries.async_entries(DOMAIN)
+            if spec_for(e.data).needs_certificate
+        ]
+        return [d for d in dict.fromkeys(duids) if d]
+
+    async def async_step_samsung(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        known = self._known_duids()
+        if user_input is not None:
+            extra = [d for d in re.split(r"[\s,;]+", user_input.get(CONF_EXTRA_DUIDS) or "") if d]
+            duids = list(dict.fromkeys(known + extra))
+            if any(not re.fullmatch(r"[A-Za-z0-9._-]{4,64}", d) for d in extra):
+                errors[CONF_EXTRA_DUIDS] = "invalid_duid"
+            elif not duids or len(duids) > samsung_cert.MAX_DUIDS:
+                errors[CONF_EXTRA_DUIDS] = "too_many_duids" if duids else "no_duid"
+            else:
+                self._samsung = {
+                    CONF_AUTHOR_CN: (user_input.get(CONF_AUTHOR_CN) or "").strip() or "HA-Brew",
+                    CONF_PRIVILEGE: user_input[CONF_PRIVILEGE],
+                    CONF_DUIDS: duids,
+                }
+                return await self.async_step_samsung_login()
+        return self.async_show_form(
+            step_id="samsung",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(
+                    {
+                        vol.Optional(CONF_AUTHOR_CN, default="HA-Brew"): str,
+                        vol.Required(CONF_PRIVILEGE, default="Public"): SelectSelector(
+                            SelectSelectorConfig(
+                                options=list(samsung_cert.PRIVILEGES),
+                                translation_key="privilege",
+                                mode=SelectSelectorMode.LIST,
+                            )
+                        ),
+                        vol.Optional(CONF_EXTRA_DUIDS): str,
+                    }
+                ),
+                user_input,
+            ),
+            description_placeholders={"duids": ", ".join(known) or "-"},
+            errors=errors,
+        )
+
+    async def async_step_samsung_login(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Wait (up to 15 min) until the helper on the PC forwards the Samsung sign-in."""
+        if self._login_task is None:
+            self._login_token, pending = samsung_login.start_login(self.hass)
+            self._login_task = self.hass.async_create_task(
+                asyncio.wait_for(asyncio.shield(pending.future), samsung_login.LOGIN_TIMEOUT)
+            )
+        if not self._login_task.done():
+            return self.async_show_progress(
+                step_id="samsung_login",
+                progress_action="samsung_login",
+                progress_task=self._login_task,
+                description_placeholders=samsung_login.commands(self.hass, self._login_token),
+            )
+        try:
+            self._session = self._login_task.result()
+        except (TimeoutError, asyncio.CancelledError):
+            self._session = None
+        samsung_login.finish_login(self.hass, self._login_token)
+        return self.async_show_progress_done(next_step_id="samsung_issue" if self._session else "samsung_timeout")
+
+    async def async_step_samsung_timeout(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        return self.async_abort(reason="samsung_timeout")
+
+    async def async_step_samsung_issue(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Create keys and CSRs, let Samsung sign them and store the result as a certificate pair."""
+        assert self._session is not None
+        opts = self._samsung
+        try:
+            author_key = await self.hass.async_add_executor_job(_existing_author_key, _stored_samsung_certs(self.hass))
+            if author_key is None:
+                author_key = await self.hass.async_add_executor_job(samsung_cert.generate_key)
+            dist_key = await self.hass.async_add_executor_job(samsung_cert.generate_key)
+            author_csr = await self.hass.async_add_executor_job(
+                samsung_cert.author_csr, author_key, opts[CONF_AUTHOR_CN]
+            )
+            dist_csr = await self.hass.async_add_executor_job(
+                samsung_cert.distributor_csr, dist_key, self._session.email, opts[CONF_DUIDS]
+            )
+            http = async_get_clientsession(self.hass)
+            author_cert = await samsung_cert.issue_author(http, self._session, author_csr)
+            dist_cert = await samsung_cert.issue_distributor(http, self._session, dist_csr, opts[CONF_PRIVILEGE])
+            password = samsung_cert.new_password()
+            files = await self.hass.async_add_executor_job(
+                _build_p12_files, author_key, author_cert, dist_key, dist_cert, opts[CONF_PRIVILEGE], password
+            )
+            profile = await self.hass.async_add_executor_job(
+                load_p12_pair, files["author.p12"], files["distributor.p12"], password
+            )
+        except samsung_cert.SamsungCertError as err:
+            _LOGGER.warning("Creating a Samsung certificate failed: %s", err)
+            return self.async_abort(
+                reason=f"samsung_{err.kind}",
+                description_placeholders={"error": str(err), "profile_url": samsung_cert.PROFILE_URL},
+            )
+        self._name = self._name or f"Samsung ({self._session.email or opts[CONF_AUTHOR_CN]})"
+        errors: dict[str, str] = {}
+        result = await self._async_store(
+            profile,
+            files,
+            errors,
+            cert_type=CERT_TYPE_SAMSUNG,
+            extra={CONF_PRIVILEGE: opts[CONF_PRIVILEGE], CONF_DUIDS: opts[CONF_DUIDS]},
+        )
+        return result or self.async_abort(reason="samsung_failed", description_placeholders={"error": str(errors)})
+
+    @callback
+    def async_remove(self) -> None:
+        """The dialog was closed: stop waiting for the sign-in."""
+        if self._login_task and not self._login_task.done():
+            self._login_task.cancel()
+        if self._login_token:
+            samsung_login.finish_login(self.hass, self._login_token)
+
+    # ------------------------------------------------------------------ upload an existing certificate
 
     async def async_step_tizenbrew(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
         errors: dict[str, str] = {}
@@ -411,7 +550,12 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
         )
 
     async def _async_store(
-        self, profile: SigningProfile, files: dict[str, bytes], errors: dict[str, str]
+        self,
+        profile: SigningProfile,
+        files: dict[str, bytes],
+        errors: dict[str, str],
+        cert_type: str | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> SubentryFlowResult | None:
         """Persist the certificate; returns None (with errors set) when it does not fit this TV."""
         entry = self._get_entry()
@@ -425,10 +569,14 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
             files,
         )
         expires = profile.author.not_after
+        if cert_type is None:
+            cert_type = CERT_TYPE_TIZENBREW if "tizenbrewInstallerConfig.json" in files else CERT_TYPE_P12
+        default_name = {CERT_TYPE_TIZENBREW: "TizenBrew", CERT_TYPE_P12: profile.author.common_name or "Certificate"}
         return self.async_create_entry(
-            title=self._name,
+            title=self._name or default_name.get(cert_type, "Samsung"),
             data={
-                CONF_CERT_TYPE: CERT_TYPE_TIZENBREW if "tizenbrewInstallerConfig.json" in files else CERT_TYPE_P12,
+                **(extra or {}),
+                CONF_CERT_TYPE: cert_type,
                 CONF_CERT_ID: cert_id,
                 CONF_AUTHOR_CN: profile.author.common_name,
                 CONF_AUTHOR_SERIAL: profile.author.serial,
@@ -436,6 +584,36 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
             },
             unique_id=profile.author.serial or None,
         )
+
+
+def _stored_samsung_certs(hass: HomeAssistant) -> list[Path]:
+    """Folders of certificates HA-Brew created earlier, on any TV."""
+    return [
+        certificates.cert_dir(hass, entry.entry_id, sub.data[CONF_CERT_ID])
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        for sub in entry.subentries.values()
+        if sub.subentry_type == SUBENTRY_CERTIFICATE and sub.data.get(CONF_CERT_TYPE) == CERT_TYPE_SAMSUNG
+    ]
+
+
+def _existing_author_key(paths: list[Path]):
+    """Author key of the first readable stored certificate, or None (executor)."""
+    for path in paths:
+        try:
+            password = (path / "password.txt").read_text(encoding="utf-8").strip()
+            return samsung_cert.author_key_from_p12((path / "author.p12").read_bytes(), password)
+        except (OSError, ValueError, samsung_cert.SamsungCertError) as err:
+            _LOGGER.debug("Stored author key not usable: %s", err)
+    return None
+
+
+def _build_p12_files(author_key, author_cert, dist_key, dist_cert, privilege: str, password: str) -> dict[str, bytes]:
+    """author.p12 + distributor.p12 with Samsung's CAs, the same layout as an uploaded pair (executor)."""
+    return {
+        "author.p12": samsung_cert.to_p12(author_key, author_cert, samsung_cert.ca_certificate("author"), password),
+        "distributor.p12": samsung_cert.to_p12(dist_key, dist_cert, samsung_cert.ca_certificate(privilege), password),
+        "password.txt": password.encode(),
+    }
 
 
 # ---------------------------------------------------------------------- apps

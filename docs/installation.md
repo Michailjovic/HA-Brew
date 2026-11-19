@@ -8,7 +8,7 @@ You need:
 
 - Home Assistant 2025.8 or newer with [HACS](https://hacs.xyz/docs/use/) installed.
 - The TV and Home Assistant on the same home network. A fixed IP address for the TV (DHCP reservation in your router) saves trouble later.
-- Samsung only: a Windows PC for getting a signing certificate (part 2.3). After that the PC is not needed.
+- Samsung only: a computer in the same network for signing in to your Samsung account once (part 2.3). Nothing is installed on it.
 
 ---
 
@@ -46,7 +46,26 @@ If it says it cannot connect, the TV is off, Developer Mode is not on, or the Ho
 
 ### 2.3 Add the signing certificate
 
-Samsung TVs accept only signed apps, and **an installed app can only be updated with the same certificate it was first installed with**. Use the certificate of the tool you installed the app with:
+Samsung TVs accept only signed apps, and **an installed app can only be updated with the same certificate it was first installed with**. Two ways:
+
+#### A. Create a new certificate (recommended for new apps)
+
+You need a free [Samsung account](https://account.samsung.com) with an e-mail address and a computer (Windows, macOS or Linux) in the same network as Home Assistant. Nothing is installed on the computer.
+
+1. **Settings → Devices & services → HA-Brew** → your TV → **Add certificate**.
+2. Choose **Create a new certificate (Samsung account)** → **Submit**.
+3. Author name: anything (e.g. your name). Privilege level: **Public**. *Other TVs*: only for Samsung TVs that are not in HA-Brew. **Submit**.
+4. The dialog shows a command. On the computer:
+   - **Windows**: press **Win + R**, paste the command, press **Enter**.
+   - **macOS / Linux**: paste it into **Terminal**.
+5. The browser opens the Samsung sign-in page. Sign in. The page then says *Signed in*; close it.
+6. Back in Home Assistant the dialog continues by itself and creates the certificate (a few seconds).
+
+The certificate is valid for all your Samsung TVs in HA-Brew and is stored only in Home Assistant. Further certificates reuse the same author key. If port 4794 is busy, close Tizen Studio or another certificate tool and run the command again.
+
+> Apps that are already on the TV were signed with the certificate of the tool you used (e.g. TizenBrew Installer). To update them with the new certificate they must be uninstalled and installed again once, which deletes their data (logins, settings). The panel offers **Uninstall and install again** when the TV refuses an update. To keep the data, upload the old certificate instead (B).
+
+#### B. Upload a certificate you already have
 
 | You installed the app with | File(s) to upload | Where to find them on the PC |
 |---|---|---|
@@ -55,8 +74,6 @@ Samsung TVs accept only signed apps, and **an installed app can only be updated 
 | Tizen Studio | `author.p12` + `distributor.p12` and their password | your certificate profile folder |
 
 Copy the path from the table into the address bar of Windows Explorer to open the folder.
-
-If the app is not on the TV yet, any of these certificates works. Apps2Samsung or TizenBrew Installer create one the first time you install something with them. (Creating a certificate directly with HA-Brew is planned.)
 
 1. **Settings → Devices & services → HA-Brew** → your TV → **Add certificate**.
 2. Choose the format, upload the file(s), fill in the password for `.p12` files → **Submit**.
@@ -149,6 +166,9 @@ HA-Brew then waits up to 60 seconds for the TV.
 |---|---|
 | Author certificate not match (Samsung) | The app was installed with another certificate. Add that certificate (part 2.3). If you do not have it, the panel offers **Uninstall and install again**; the app loses its data (logins, settings). |
 | Certificate / signature refused (Samsung) | Wrong or expired certificate. Check the expiry in the panel's *Certificates* tab. |
+| Creating a certificate: Samsung account has no e-mail address | Add one in your [Samsung account profile](https://account.samsung.com/membership/getProfileInfo.do) and start again. |
+| Creating a certificate: too many requests | Samsung limits how often certificates can be issued. Try again in an hour. |
+| Creating a certificate: the dialog keeps waiting | The command must run on a computer in the same network as Home Assistant, and you must finish the sign-in in the browser it opened. Windows: if the window closed at once, port 4794 is busy (Tizen Studio). |
 | This package needs Tizen X or newer | The app does not support your TV's Tizen version. |
 | TV not reachable | TV off and no wake-up method set, Developer Mode off, or (Samsung) the Host PC IP was changed. |
 | The TV did not remove the app | Some Samsung TVs from 2021 on ignore uninstall commands. Remove the app on the TV: *Apps* → select it → *Delete*. |

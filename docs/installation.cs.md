@@ -8,7 +8,7 @@ Potřebujete:
 
 - Home Assistant 2025.8 nebo novější s nainstalovaným [HACS](https://hacs.xyz/docs/use/).
 - Televizi a Home Assistant ve stejné domácí síti. Pevná IP adresa televize (rezervace DHCP v routeru) ušetří starosti.
-- Jen Samsung: počítač s Windows kvůli podpisovému certifikátu (část 2.3). Potom už počítač potřeba není.
+- Jen Samsung: počítač ve stejné síti kvůli jednorázovému přihlášení k účtu Samsung (část 2.3). Nic se na něj neinstaluje.
 
 ---
 
@@ -46,7 +46,26 @@ Když hlásí, že se nemůže připojit: televize je vypnutá, Developer Mode n
 
 ### 2.3 Přidání podpisového certifikátu
 
-Televize Samsung přijímají jen podepsané aplikace a **nainstalovanou aplikaci lze aktualizovat jen stejným certifikátem, kterým byla poprvé nainstalována**. Použijte certifikát nástroje, kterým jste aplikaci instalovali:
+Televize Samsung přijímají jen podepsané aplikace a **nainstalovanou aplikaci lze aktualizovat jen stejným certifikátem, kterým byla poprvé nainstalována**. Jsou dvě možnosti:
+
+#### A. Vytvořit nový certifikát (doporučeno pro nové aplikace)
+
+Potřebujete bezplatný [účet Samsung](https://account.samsung.com) s e-mailovou adresou a počítač (Windows, macOS nebo Linux) ve stejné síti jako Home Assistant. Na počítač se nic neinstaluje.
+
+1. **Nastavení → Zařízení a služby → HA-Brew** → vaše televize → **Přidat certifikát**.
+2. Vyberte **Vytvořit nový certifikát (účet Samsung)** → **Odeslat**.
+3. Jméno autora: cokoli (třeba vaše jméno). Úroveň oprávnění: **Public**. *Další televize*: jen pro televize Samsung, které v HA-Brew nejsou. **Odeslat**.
+4. Dialog ukáže příkaz. Na počítači:
+   - **Windows**: stiskněte **Win + R**, vložte příkaz, **Enter**.
+   - **macOS / Linux**: vložte ho do **Terminálu**.
+5. V prohlížeči se otevře přihlášení Samsungu. Přihlaste se. Stránka pak napíše *Přihlášeno*; zavřete ji.
+6. V Home Assistantu dialog pokračuje sám a certifikát vytvoří (pár sekund).
+
+Certifikát platí pro všechny vaše televize Samsung v HA-Brew a je uložený jen v Home Assistantu. Další certifikáty používají stejný autorský klíč. Když je port 4794 obsazený, zavřete Tizen Studio nebo jiný nástroj na certifikáty a spusťte příkaz znovu.
+
+> Aplikace, které už v televizi jsou, podepsal certifikát nástroje, kterým jste je instalovali (např. TizenBrew Installer). Aby šly aktualizovat novým certifikátem, je nutné je jednou odinstalovat a nainstalovat znovu, čímž přijdou o svá data (přihlášení, nastavení). Panel nabídne **Odinstalovat a nainstalovat znovu**, když televize aktualizaci odmítne. Chcete-li data zachovat, nahrajte místo toho původní certifikát (B).
+
+#### B. Nahrát certifikát, který už máte
 
 | Aplikaci jste instalovali přes | Soubor(y) k nahrání | Kde je najdete na počítači |
 |---|---|---|
@@ -55,8 +74,6 @@ Televize Samsung přijímají jen podepsané aplikace a **nainstalovanou aplikac
 | Tizen Studio | `author.p12` + `distributor.p12` a jejich heslo | složka vašeho certifikačního profilu |
 
 Cestu z tabulky zkopírujte do adresního řádku Průzkumníka Windows a složka se otevře.
-
-Pokud aplikace v televizi ještě není, poslouží kterýkoli z těchto certifikátů. Apps2Samsung i TizenBrew Installer si ho vytvoří při první instalaci. (Vytvoření certifikátu přímo v HA-Brew se připravuje.)
 
 1. **Nastavení → Zařízení a služby → HA-Brew** → vaše televize → **Přidat certifikát**.
 2. Vyberte formát, nahrajte soubor(y), u `.p12` vyplňte heslo → **Odeslat**.
@@ -149,6 +166,9 @@ HA-Brew pak na televizi čeká až 60 sekund.
 |---|---|
 | Author certificate not match (Samsung) | Aplikace byla nainstalována jiným certifikátem. Přidejte ten certifikát (část 2.3). Pokud ho nemáte, panel nabídne **Odinstalovat a nainstalovat znovu**; aplikace přijde o svá data (přihlášení, nastavení). |
 | Certifikát / podpis odmítnut (Samsung) | Špatný nebo prošlý certifikát. Zkontrolujte platnost v záložce *Certifikáty* v panelu. |
+| Vytvoření certifikátu: účet Samsung nemá e-mail | Doplňte ho v [profilu účtu Samsung](https://account.samsung.com/membership/getProfileInfo.do) a začněte znovu. |
+| Vytvoření certifikátu: příliš mnoho požadavků | Samsung omezuje, jak často lze certifikáty vydávat. Zkuste to za hodinu. |
+| Vytvoření certifikátu: dialog pořád čeká | Příkaz musí běžet na počítači ve stejné síti jako Home Assistant a přihlášení v otevřeném prohlížeči je potřeba dokončit. Windows: když se okno hned zavřelo, je obsazený port 4794 (Tizen Studio). |
 | Tento balíček vyžaduje Tizen X nebo novější | Aplikace vaši verzi Tizenu nepodporuje. |
 | Televize není dostupná | Televize je vypnutá a není nastavené probuzení, Developer Mode je vypnutý nebo (Samsung) se změnila Host PC IP. |
 | Televize aplikaci neodinstalovala | Některé televize Samsung od roku 2021 příkaz k odinstalaci ignorují. Odstraňte aplikaci přímo v televizi: *Aplikace* → vyberte ji → *Odstranit*. |
