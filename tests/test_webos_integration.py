@@ -324,3 +324,23 @@ async def test_auth_failure_starts_reauth(hass: HomeAssistant, webos_tv: MockWeb
     assert entry.state is ConfigEntryState.SETUP_ERROR
     flows = hass.config_entries.flow.async_progress()
     assert [f["context"]["source"] for f in flows] == ["reauth"]
+
+
+async def test_uninstall_and_diagnostics(hass: HomeAssistant, lg, hass_ws_client, webos_tv: MockWebosTv) -> None:
+    from custom_components.habrew.diagnostics import async_get_config_entry_diagnostics
+
+    entry, *_ = lg
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    text = str(diag)
+    assert SERIAL not in text and "BEGIN RSA" not in text and PASSPHRASE not in text and "f" * 64 not in text
+    assert diag["live"]["system_info"]["modelName"] == "OLED55MOCK"
+    assert {a["id"] for a in diag["live"]["dev_apps"]} == {"org.webosbrew.hbchannel", "space.nuvio.webos"}
+
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {"type": "habrew/app/uninstall", "entry_id": entry.entry_id, "app_id": "org.webosbrew.hbchannel"}
+    )
+    res = await client.receive_json()
+    assert res["success"], res
+    assert "org.webosbrew.hbchannel" not in webos_tv.apps
+    assert "app1" in entry.subentries

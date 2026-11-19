@@ -25,6 +25,7 @@ from ..base import (
     DeviceError,
     InstallError,
     LaunchError,
+    UninstallError,
     check_id,
 )
 
@@ -116,6 +117,7 @@ class WebosDevice:
         self._key_pem = key_pem
         self._passphrase = passphrase
         self._key: asyncssh.SSHKey | None = None
+        self.last_output = ""  # status line of the last failed install/uninstall (diagnostics)
 
     async def _connect(self) -> asyncssh.SSHClientConnection:
         if self._key is None:
@@ -211,6 +213,46 @@ class WebosDevice:
             raise LaunchError(reply.get("errorText") or "launch failed")
         return "launched"
 
+    async def uninstall(self, app_id: str) -> None:
+        """Remove a Developer Mode app (appInstallService/dev/remove) and wait until it is gone."""
+        check_id(app_id)
+        command = _luna_command(
+            "luna://com.webos.appInstallService/dev/remove", {"id": app_id, "subscribe": True}, interactive=True
+        )
+        async with await self._connect() as conn:
+            proc = await conn.create_process(command)
+            try:
+                for _ in range(40):  # up to ~60 s
+                    await asyncio.sleep(1.5)
+                    reply = await self._luna(conn, "luna://com.webos.applicationManager/dev/listApps", {}, timeout=30)
+                    if not any(a.get("id") == app_id for a in reply.get("apps", [])):
+                        return
+                    if proc.exit_status is not None:
+                        break
+            finally:
+                proc.close()
+        self.last_output = f"dev/remove {app_id}: app still installed"
+        raise UninstallError("The TV kept the app")
+
+    async def diagnostics(self) -> dict[str, Any]:
+        """Raw facts about the TV for support (redacted by the integration)."""
+        async with await self._connect() as conn:
+            info = await self._luna(
+                conn,
+                "luna://com.webos.service.tv.systemproperty/getSystemInfo",
+                {"keys": ["modelName", "serialNumber", "sdkVersion", "firmwareVersion", "boardType", "UHD"]},
+            )
+            apps = await self._luna(conn, "luna://com.webos.applicationManager/dev/listApps", {}, timeout=30)
+            server = conn.get_extra_info("server_version")
+        return {
+            "ssh_server": server,
+            "system_info": info,
+            "dev_apps": [
+                {"id": a.get("id"), "version": a.get("version"), "type": a.get("type")} for a in apps.get("apps", [])
+            ],
+            "last_error_output": self.last_output,
+        }
+
     async def install(
         self,
         ipk: bytes,
@@ -231,6 +273,10 @@ class WebosDevice:
             try:
                 report("install", 0)
                 await self._install(conn, remote, lambda pct: report("install", pct))
+                self.last_output = ""
+            except InstallError as err:
+                self.last_output = str(err)
+                raise
             finally:
                 try:
                     await conn.run(f"rm -f {shlex.quote(remote)}", timeout=10)

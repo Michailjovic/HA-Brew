@@ -51,3 +51,7 @@ class InstallError(DeviceError):
 
 class LaunchError(DeviceError):
     """The TV refused to start an app."""
+
+
+class UninstallError(DeviceError):
+    """The app is still on the TV after the uninstall command."""

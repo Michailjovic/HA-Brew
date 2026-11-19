@@ -173,3 +173,79 @@ async def test_migrates_device_from_subentry(hass: HomeAssistant, sdbd, tizenbre
     assert [e.unique_id for e in entities] == [f"{entry.entry_id}_app1"]
     assert entities[0].config_subentry_id is None and entities[0].device_id == device.id
     assert "assigns an existing device" not in caplog.text
+
+
+async def test_release_identity(hass: HomeAssistant, setup, sdbd) -> None:
+    """The TV reports another version string than the release: no endless update offer."""
+    sdbd.install_version = "1.4.2-build7"
+    await hass.services.async_call("update", "install", {"entity_id": "update.m70_nuvio_tv"}, blocking=True)
+    await hass.async_block_till_done()
+    state = hass.states.get("update.m70_nuvio_tv")
+    assert state.attributes["installed_version"] == "1.4.2-build7"
+    assert state.state == "off"
+
+
+async def test_platform_precheck(hass: HomeAssistant, setup, sdbd) -> None:
+    entry, _ = setup
+    entry.runtime_data.data.releases["app1"].required_version = "10.0"
+    with pytest.raises(HomeAssistantError) as err:
+        await hass.services.async_call("update", "install", {"entity_id": "update.m70_nuvio_tv"}, blocking=True)
+    assert err.value.translation_key == "platform_too_old"
+    assert sdbd.installs == [] and sdbd.pushed is None
+
+
+async def test_uninstall(hass: HomeAssistant, setup, sdbd, hass_ws_client) -> None:
+    entry, _ = setup
+    client = await hass_ws_client(hass)
+
+    sdbd.uninstall_allowed = False
+    await client.send_json_auto_id(
+        {"type": "habrew/app/uninstall", "entry_id": entry.entry_id, "app_id": "NuvioTV001", "subentry_id": "app1"}
+    )
+    res = await client.receive_json()
+    assert not res["success"] and res["error"]["code"] == "uninstall_failed"
+    assert "app1" in entry.subentries  # still managed
+
+    sdbd.uninstall_allowed = True
+    await client.send_json_auto_id(
+        {"type": "habrew/app/uninstall", "entry_id": entry.entry_id, "app_id": "NuvioTV001", "subentry_id": "app1"}
+    )
+    res = await client.receive_json()
+    assert res["success"], res
+    await hass.async_block_till_done()
+    assert "NuvioTV001" not in sdbd.apps
+    assert "app1" not in entry.subentries
+
+
+async def test_clean_reinstall(hass: HomeAssistant, setup, sdbd, hass_ws_client) -> None:
+    """Way out of 'Author certificate not match': uninstall, then install fresh."""
+    entry, _ = setup
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {
+            "type": "habrew/app/uninstall",
+            "entry_id": entry.entry_id,
+            "app_id": "NuvioTV001",
+            "subentry_id": "app1",
+            "reinstall": True,
+        }
+    )
+    res = await client.receive_json()
+    assert res["success"], res
+    assert sdbd.installs == ["NuvioTV001"]
+    assert sdbd.apps["NuvioTV001"][2] == "1.4.2"
+    assert "app1" in entry.subentries
+
+
+async def test_diagnostics(hass: HomeAssistant, setup, sdbd) -> None:
+    from custom_components.habrew.diagnostics import async_get_config_entry_diagnostics
+
+    entry, _ = setup
+    diag = await async_get_config_entry_diagnostics(hass, entry)
+    text = str(diag)
+    assert DUID not in text and "127.0.0.1" not in text
+    assert diag["entry"]["data"]["duid"] == "**REDACTED**"
+    assert diag["state"]["apps_on_tv"][0]["package_id"] == "NuvioTV001"
+    assert diag["live"]["capability"]["platform_version"] == "9.0"
+    assert diag["live"]["app_count"] == 1 and diag["live"]["vd_applist_sample"]
+    assert diag["certificates"]["cert1"]["cert_id"] == "**REDACTED**"

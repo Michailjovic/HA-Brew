@@ -197,6 +197,12 @@
     },
     "devmode_failed": {
       "message": "Relaci Developer Mode se nepodařilo prodloužit: {error}"
+    },
+    "uninstall_failed": {
+      "message": "Televize aplikaci neodinstalovala ({error}). Některé televize to nepovolují; odstraň ji přímo na TV: Aplikace → vyber aplikaci → Odstranit."
+    },
+    "platform_too_old": {
+      "message": "Tento balíček vyžaduje {os} {required} nebo novější, televize má {os} {current}."
     }
   },
   "options": {

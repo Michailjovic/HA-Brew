@@ -78,6 +78,7 @@ class MockWebosTv:
         self.installed: list[str] = []
         self.launched: list[str] = []
         self.install_result = "ok"
+        self.uninstall_allowed = True
         self.port = 0
         self._server: asyncssh.SSHAcceptor | None = None
 
@@ -146,6 +147,15 @@ class MockWebosTv:
                 reply = {"returnValue": False, "errorCode": -101, "errorText": "not exist"}
         elif uri.endswith("/dev/install"):
             await self._install(process, params["ipkUrl"])
+            return
+        elif uri.endswith("/dev/remove"):
+            process.stdout.write(b'{"subscribed":true,"returnValue":true}\n')
+            if self.uninstall_allowed:
+                self.apps.pop(params["id"], None)
+            try:
+                await asyncio.wait_for(process.stdin.read(), 5)
+            except TimeoutError:
+                pass
             return
         else:
             reply = {"returnValue": False, "errorText": f'Denied method call "{uri}"'}

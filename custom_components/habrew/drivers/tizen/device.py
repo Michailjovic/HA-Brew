@@ -7,7 +7,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ..base import InstallError, LaunchError, check_id
+from ..base import InstallError, LaunchError, UninstallError, check_id
 from .sdb import SDB_PORT, SdbConnection, SdbError
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +23,7 @@ _INSTALL_FAILED_RX = re.compile(
     re.IGNORECASE,
 )
 _PERCENT_RX = re.compile(r"installing\[(\d+)\]")
+_UNINSTALL_DONE_RX = re.compile(r"spend time|uninstall\w* (?:completed|failed)|failed|not exist", re.IGNORECASE)
 _FAIL_CODE_RX = re.compile(r"install failed\s*\[\s*([^\]]+)\]\s*(?:,\s*reason:\s*(.*))?", re.IGNORECASE)
 
 
@@ -113,6 +114,7 @@ class TizenDevice:
     """A TV reachable over sdb. Each call opens its own short-lived connection."""
 
     def __init__(self, host: str, port: int = SDB_PORT) -> None:
+        self.last_output = ""  # raw output of the last failed install/uninstall (diagnostics)
         self.host = host
         self.port = port
 
@@ -138,6 +140,41 @@ class TizenDevice:
         if re.search(r"launch failed|not exist|not found", reply, re.IGNORECASE) or "launched" not in reply.lower():
             raise TizenLaunchError(reply.strip() or "No reply from the TV")
         return reply.strip()
+
+    async def uninstall(self, app_id: str) -> None:
+        """Remove an app from the TV and check that it is really gone.
+
+        Some newer TVs accept the command but keep the app (reported for 2021+ models), so the
+        app list is read again afterwards.
+        """
+        check_id(app_id)
+        async with self._connection() as conn:
+            try:
+                output = await conn.shell(f"0 vd_appuninstall {app_id}", timeout=120, done_rx=_UNINSTALL_DONE_RX)
+            except SdbError as err:
+                output = str(err)
+            _LOGGER.debug("vd_appuninstall %s output:\n%s", app_id, output)
+            apps = parse_vd_applist(await conn.shell("0 vd_applist", timeout=30))
+        if any(app_id in (a.app_id, a.package_id) for a in apps):
+            self.last_output = output[-2000:]
+            raise UninstallError(output.strip() or "The TV kept the app")
+
+    async def diagnostics(self) -> dict:
+        """Raw facts about the TV for support (redacted by the integration)."""
+        async with self._connection() as conn:
+            caps = await conn.capability()
+            duid = (await conn.shell("0 getduid", timeout=10)).strip()
+            applist = await conn.shell("0 vd_applist", timeout=30)
+            banner = conn.banner
+        entries = [e for e in re.split(r"-{20,}\s*\n", applist.replace("\r", "")) if "=" in e]
+        return {
+            "banner": banner,
+            "capability": caps,
+            "duid": duid,
+            "app_count": len(parse_vd_applist(applist)),
+            "vd_applist_sample": entries[:3],
+            "last_error_output": self.last_output,
+        }
 
     async def install(
         self,
@@ -178,8 +215,10 @@ class TizenDevice:
                 )
                 _LOGGER.debug("vd_appinstall %s output:\n%s", install_id, output)
                 if not _INSTALL_FAILED_RX.search(output):
+                    self.last_output = ""
                     report("install", 100)
                     return
+                self.last_output = output[-2000:]
                 last_error = _classify_failure(output)
                 if last_error.kind in ("author_mismatch", "platform"):
                     break  # retrying with the app id will not help

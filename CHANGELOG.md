@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.1] - 2026-11-19
+
+### Added
+- **Uninstall from the TV**: removing an app in the panel now offers *Only stop managing* or *Uninstall from TV*; unmanaged sideloaded apps get an uninstall button too. HA-Brew checks afterwards that the app is really gone (some Samsung TVs from 2021 on ignore the command; the message then says to remove it on the TV).
+- After *Author certificate not match* the panel offers **Uninstall and install again** (the app loses its data).
+- **Diagnostics** (*Download diagnostics*): TV model, system version, apps, releases, last errors and a live read-out from the TV; IP/MAC, DUID, serial number, keys, passphrase and certificate details are redacted.
+- Step-by-step installation guide in English and Czech (`docs/installation.md`, `docs/installation.cs.md`).
+- WebSocket command `habrew/app/uninstall` (with `reinstall`).
+
+### Fixed
+- Packages that need a newer Tizen than the TV runs are refused before uploading, with a clear message.
+- An app no longer shows an endless update when the catalog describes a release with another version string than the one the TV reports after installing it.
+
 ## [0.3.0] - 2026-11-19
 
 ### Added

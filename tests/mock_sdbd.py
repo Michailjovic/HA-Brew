@@ -21,9 +21,11 @@ class MockSdbd:
         self.duid = duid
         self.apps = {"NuvioTV001": ("NuvioTV001.NuvioTV", "Nuvio TV", "1.3.6")}
         self.install_result = "ok"  # ok | author_mismatch
+        self.install_version = "1.4.2"  # what the TV reports after a successful install
         self.pushed: bytes | None = None
         self.installs: list[str] = []
         self.launched: list[str] = []
+        self.uninstall_allowed = True  # False = TV accepts the command but keeps the app (2021+ models)
         self.awake = True  # False = TV in standby, connections are dropped
         self.port = 0
         self._server: asyncio.base_events.Server | None = None
@@ -98,6 +100,13 @@ class MockSdbd:
                 self.launched.append(app_id)
                 return f"app_id[{app_id.split('.')[0]}] launched\n"
             return f"app_id[{app_id}] launch failed[-1]\n"
+        if svc.startswith("shell:0 vd_appuninstall"):
+            ident = svc.split()[2]
+            pkg = next((k for k, a in self.apps.items() if ident in (k, a[0])), None)
+            if pkg and self.uninstall_allowed:
+                del self.apps[pkg]
+                return f"app_id[{ident}] uninstall start\napp_id[{ident}] uninstall completed\nspend time for wascmd is [900]ms\n"
+            return "spend time for wascmd is [100]ms\n"
         if svc.startswith("shell:0 vd_appinstall"):
             ident = svc.split()[2]
             self.installs.append(ident)
@@ -108,7 +117,7 @@ class MockSdbd:
                     "spend time for wascmd is [4000]ms\n"
                 )
             app_id, title, _ = self.apps.get("NuvioTV001", ("NuvioTV001.NuvioTV", "Nuvio TV", ""))
-            self.apps["NuvioTV001"] = (app_id, title, "1.4.2")
+            self.apps["NuvioTV001"] = (app_id, title, self.install_version)
             return (
                 f"app_id[{ident}] install start\napp_id[{ident}] installing[50]\napp_id[{ident}] installing[100]\n"
                 f"app_id[{ident}] install completed\nspend time for wascmd is [6000]ms\n"

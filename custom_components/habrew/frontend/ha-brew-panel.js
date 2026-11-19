@@ -101,6 +101,11 @@ const STRINGS = {
     no_certs_needed: "LG TVs do not need signing certificates.",
     platform_tizen: "Samsung",
     platform_webos: "LG",
+    stop_managing: "Only stop managing",
+    uninstall_tv: "Uninstall from TV",
+    done_uninstall: "{app} was removed from the TV.",
+    reinstall_hint: "The app on the TV was installed with another certificate. Uninstalling it and installing it again fixes this, but the app loses its data (logins, settings).",
+    reinstall_clean: "Uninstall and install again",
   },
   cs: {
     tvs: "Televize",
@@ -198,6 +203,11 @@ const STRINGS = {
     no_certs_needed: "Televize LG podpisové certifikáty nepotřebují.",
     platform_tizen: "Samsung",
     platform_webos: "LG",
+    stop_managing: "Jen přestat spravovat",
+    uninstall_tv: "Odinstalovat z TV",
+    done_uninstall: "{app} byla z televize odinstalována.",
+    reinstall_hint: "Aplikace v TV byla nainstalována jiným certifikátem. Pomůže ji odinstalovat a nainstalovat znovu, aplikace ale přijde o svá data (přihlášení, nastavení).",
+    reinstall_clean: "Odinstalovat a nainstalovat znovu",
   },
 };
 
@@ -217,6 +227,7 @@ class HaBrewPanel extends HTMLElement {
     this._busy = {};
     this._form = null; // {kind, entry, ...}
     this._confirm = null;
+    this._reinstall = null;
     this._filter = { q: "", cat: "", adult: false };
     this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
     this.shadowRoot.addEventListener("input", (ev) => this._onInput(ev));
@@ -370,20 +381,36 @@ class HaBrewPanel extends HTMLElement {
       case "install":
         await this._install(entry, sub);
         break;
-      case "remove":
-        if (this._confirm !== sub) {
-          this._confirm = sub;
-          this._render();
-          setTimeout(() => {
-            if (this._confirm === sub) {
-              this._confirm = null;
-              this._render();
-            }
-          }, 4000);
-          return;
-        }
+      case "remove": {
+        const key = sub || `app:${el.dataset.app}`;
+        this._confirm = key;
+        this._render();
+        setTimeout(() => {
+          if (this._confirm === key) {
+            this._confirm = null;
+            this._render();
+          }
+        }, 8000);
+        return;
+      }
+      case "remove-confirmed":
         this._confirm = null;
         await this._run(`remove:${sub}`, () => this._ws("app/remove", { entry_id: entry, subentry_id: sub }));
+        break;
+      case "uninstall": {
+        this._confirm = null;
+        const payload = { entry_id: entry, app_id: el.dataset.app };
+        if (sub) payload.subentry_id = sub;
+        await this._run(`uninstall:${el.dataset.app}`, () => this._ws("app/uninstall", payload), this.t("done_uninstall", { app: el.dataset.title || el.dataset.app }));
+        break;
+      }
+      case "reinstall-clean":
+        this._reinstall = null;
+        await this._run(
+          `install:${sub}`,
+          () => this._ws("app/uninstall", { entry_id: entry, subentry_id: sub, app_id: el.dataset.app, reinstall: true }),
+          this.t("done_install", { app: el.dataset.title || "" }),
+        );
         break;
       case "form-manage":
         this._form = { kind: "manage", entry, pkg };
@@ -438,7 +465,7 @@ class HaBrewPanel extends HTMLElement {
     if (list) list.innerHTML = this._catalogItems();
   }
 
-  async _run(busyKey, fn, okMessage) {
+  async _run(busyKey, fn, okMessage, onError) {
     this._busy[busyKey] = true;
     this._render();
     try {
@@ -447,6 +474,7 @@ class HaBrewPanel extends HTMLElement {
       return result;
     } catch (err) {
       this._toast(`${this.t("error")}: ${err.message || err}`);
+      if (onError) onError(err);
       return undefined;
     } finally {
       delete this._busy[busyKey];
@@ -456,7 +484,15 @@ class HaBrewPanel extends HTMLElement {
 
   async _install(entry, sub) {
     const app = this._findApp(entry, sub);
-    await this._run(`install:${sub}`, () => this._ws("app/install", { entry_id: entry, subentry_id: sub }), this.t("done_install", { app: app?.title || "" }));
+    this._reinstall = null;
+    await this._run(
+      `install:${sub}`,
+      () => this._ws("app/install", { entry_id: entry, subentry_id: sub }),
+      this.t("done_install", { app: app?.title || "" }),
+      (err) => {
+        if (err.code === "install_author_mismatch") this._reinstall = sub;
+      },
+    );
   }
 
   _findApp(entry, sub) {
@@ -629,14 +665,22 @@ class HaBrewPanel extends HTMLElement {
       action = `<span class="chip ok">${this.t("up_to_date")}</span>
         <button class="icon-btn" title="${this.t("reinstall")}" data-action="install" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}" ${off}><ha-icon icon="mdi:reload"></ha-icon></button>`;
     }
+    const ids = `data-entry="${tv.entry_id}" data-sub="${a.subentry_id}" data-app="${esc(a.app_id || "")}" data-title="${esc(a.title)}"`;
+    const uninstallBusy = this._busy[`uninstall:${a.app_id}`];
     const removeBtn =
       this._confirm === a.subentry_id
-        ? `<button class="btn danger small" data-action="remove" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}">${this.t("confirm_remove")}</button>`
-        : `<button class="icon-btn" title="${this.t("remove")}" data-action="remove" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}" ${busy ? "disabled" : ""}><ha-icon icon="mdi:delete-outline"></ha-icon></button>`;
+        ? `<button class="btn small" data-action="remove-confirmed" ${ids}>${this.t("stop_managing")}</button>
+           ${a.installed_version && a.app_id ? `<button class="btn danger small" data-action="uninstall" ${ids} ${off}>${this.t("uninstall_tv")}</button>` : ""}`
+        : `<button class="icon-btn" title="${this.t("remove")}" data-action="remove" ${ids} ${busy || uninstallBusy ? "disabled" : ""}><ha-icon icon="mdi:delete-outline"></ha-icon></button>`;
+    const reinstallHint =
+      this._reinstall === a.subentry_id && !busy
+        ? `<div class="hint warn small">${this.t("reinstall_hint")}
+            <button class="btn danger small" data-action="reinstall-clean" ${ids} ${off}>${this.t("reinstall_clean")}</button></div>`
+        : "";
     return `<div class="row">
       <div class="app">${icon}<div><div class="app-name">${esc(a.title)}</div>
         <div class="muted small">${src}${tv.needs_certificate ? ` · ${esc(a.certificate || "?")}` : ""}</div>
-        ${a.error ? `<div class="err small">${esc(a.error)}</div>` : ""}</div></div>
+        ${a.error ? `<div class="err small">${esc(a.error)}</div>` : ""}${reinstallHint}</div></div>
       <div><span class="ver">${esc(a.installed_version || "—")}</span></div>
       <div><span class="ver ${a.update_available ? "new" : ""}">${esc(a.latest_version || "—")}</span></div>
       <div class="actions">${action}${busy ? "" : launchBtn}${removeBtn}</div>
@@ -655,12 +699,18 @@ class HaBrewPanel extends HTMLElement {
          <button class="btn small" data-action="form-github" data-entry="${tv.entry_id}" data-name="${esc(a.title)}"><ha-icon icon="mdi:github"></ha-icon>${this.t("add_github")}</button>`;
     const newest = a.catalog.map((c) => c.version).filter(Boolean).sort().pop();
     const launchBtn = this._launchBtn(tv, a);
+    const off = tv.reachable || tv.wake_method !== "none" ? "" : "disabled";
+    const ids = `data-entry="${tv.entry_id}" data-app="${esc(a.app_id)}" data-title="${esc(a.title || a.app_id)}"`;
+    const uninstallBtn =
+      this._confirm === `app:${a.app_id}`
+        ? `<button class="btn danger small" data-action="uninstall" ${ids} ${off}>${this.t("uninstall_tv")}</button>`
+        : `<button class="icon-btn" title="${this.t("uninstall_tv")}" data-action="remove" ${ids} ${this._busy[`uninstall:${a.app_id}`] ? "disabled" : ""}><ha-icon icon="mdi:delete-outline"></ha-icon></button>`;
     return `<div class="row">
       <div class="app"><div class="app-icon ph"><ha-icon icon="mdi:television-play"></ha-icon></div>
         <div><div class="app-name">${esc(a.title || a.app_id)}</div><div class="muted small">${esc(a.app_id)}</div></div></div>
       <div><span class="ver">${esc(a.version || "—")}</span></div>
       <div><span class="ver">${esc(newest || "—")}</span></div>
-      <div class="actions">${action}${launchBtn}</div>
+      <div class="actions">${action}${launchBtn}${uninstallBtn}</div>
     </div>`;
   }
 

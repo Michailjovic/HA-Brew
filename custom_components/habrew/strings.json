@@ -197,6 +197,12 @@
     },
     "devmode_failed": {
       "message": "The Developer Mode session could not be extended: {error}"
+    },
+    "uninstall_failed": {
+      "message": "The TV did not remove the app ({error}). Some TVs do not allow this; remove it on the TV: Apps → select the app → Delete."
+    },
+    "platform_too_old": {
+      "message": "This package needs {os} {required} or newer; the TV runs {os} {current}."
     }
   },
   "options": {

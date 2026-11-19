@@ -61,6 +61,7 @@ from .drivers.base import (
     DeviceError,
     InstallError,
     LaunchError,
+    UninstallError,
 )
 from .drivers.tizen import CertificateError, TizenDevice, resign_wgt
 from .drivers.webos import DevModeError, WebosDevice, check_session, reset_session
@@ -131,6 +132,16 @@ class HabrewData:
     devmode: DevModeInfo | None = None
 
 
+def _version_tuple(text: str) -> tuple[int, ...]:
+    """ "6.0" → (6, 0); anything unparsable → ()."""
+    parts = []
+    for part in (text or "").strip().split("."):
+        if not part.isdigit():
+            break
+        parts.append(int(part))
+    return tuple(parts)
+
+
 def get_catalog_client(hass: HomeAssistant, platform: str = PLATFORM_TIZEN) -> CatalogClient:
     """One catalog cache per platform, shared by all TVs."""
     domain_data = hass.data.setdefault(DOMAIN, {})
@@ -162,6 +173,8 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         self.github = GitHubClient(async_get_clientsession(hass), USER_AGENT)
         self.catalog = get_catalog_client(hass, self.spec.key)
         self._devmode_token: str | None = None
+        # what HA-Brew installed last: {subentry_id: {"url": release url, "tv_version": version the TV reported}}
+        self.installed_releases: dict[str, dict[str, str]] = {}
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._cache_dir = certificates.cache_dir(hass, entry.entry_id)
         self.tv_lock = asyncio.Lock()
@@ -192,6 +205,34 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             (a for a in self.data.apps.values() if a.app_id == release.app_id), None
         )
 
+    def latest_version(self, subentry_id: str) -> str | None:
+        """Version to offer. A catalog may describe a release with another version string than the
+        one the TV reports after installing it; once HA-Brew installed exactly this release and the
+        TV still reports that version, the app counts as up to date."""
+        release = self.data.releases.get(subentry_id)
+        if release is None:
+            return None
+        app = self.installed_app(subentry_id)
+        done = self.installed_releases.get(subentry_id)
+        if app and done and done.get("url") == release.url and done.get("tv_version") == app.version:
+            return app.version
+        return release.version
+
+    def _check_platform(self, release: AppRelease) -> None:
+        """Refuse before uploading when the package needs a newer Tizen than the TV runs."""
+        required = _version_tuple(release.required_version)
+        current = _version_tuple(self.config_entry.data.get("platform_version", ""))
+        if required and current and required > current:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="platform_too_old",
+                translation_placeholders={
+                    "os": self.spec.os_name,
+                    "required": release.required_version,
+                    "current": self.config_entry.data.get("platform_version", ""),
+                },
+            )
+
     def _cache_path(self, subentry_id: str) -> Path:
         return self._cache_dir / f"{subentry_id}{self.spec.suffix}"
 
@@ -205,6 +246,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             dm = stored.get("devmode") or {}
             devmode = DevModeInfo(**{k: v for k, v in dm.items() if k in {f.name for f in fields(DevModeInfo)}})
             self._devmode_token = stored.get("devmode_token")
+        self.installed_releases = {k: v for k, v in (stored.get("installed") or {}).items() if k in self.app_subentries}
         self.data = HabrewData(
             reachable=False,
             apps={
@@ -221,6 +263,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         out: dict[str, Any] = {
             "apps": {k: asdict(v) for k, v in self.data.apps.items()},
             "releases": {k: asdict(v) for k, v in self.data.releases.items()},
+            "installed": self.installed_releases,
         }
         if self.is_webos:
             out["devmode"] = asdict(self.data.devmode) if self.data.devmode else None
@@ -534,6 +577,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
                 translation_key="no_release",
                 translation_placeholders={"app": subentry.title},
             )
+        self._check_platform(release)
         cert_subentry = None
         if self.spec.needs_certificate:
             cert_subentry = self.config_entry.subentries.get(subentry.data.get(CONF_CERTIFICATE) or "")
@@ -552,6 +596,41 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         finally:
             self._set_progress(subentry_id, None)
         await self.async_refresh_tv()
+        if app := self.installed_app(subentry_id):
+            self.installed_releases[subentry_id] = {"url": release.url, "tv_version": app.version}
+            self._save()
+            self.async_update_listeners()
+
+    async def async_uninstall(self, app_id: str) -> None:
+        """Remove an app from the TV (and check that it is gone)."""
+        await self.async_ensure_awake()
+        try:
+            async with self.tv_lock:
+                await self.device.uninstall(app_id)
+        except (UninstallError, ValueError) as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="uninstall_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        except DeviceAuthError as err:
+            self.config_entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="auth_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        except (DeviceError, TimeoutError, OSError) as err:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="tv_unreachable",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        finally:
+            await self.async_refresh_tv()
+        for sid in [sid for sid in self.installed_releases if self.installed_app(sid) is None]:
+            self.installed_releases.pop(sid)
+        self._save()
 
     async def _install(
         self,

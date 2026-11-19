@@ -59,6 +59,7 @@ def async_register(hass: HomeAssistant) -> None:
         ws_app_launch,
         ws_wake,
         ws_devmode_extend,
+        ws_app_uninstall,
     ):
         websocket_api.async_register_command(hass, handler)
 
@@ -130,6 +131,7 @@ def _serialize_entry(hass: HomeAssistant, entry: HabrewConfigEntry, catalog: Cat
             continue
         release = data.releases.get(sid) if data else None
         installed = coordinator.installed_app(sid) if coordinator else None
+        latest = coordinator.latest_version(sid) if coordinator else None
         if release:
             managed_packages[release.package_id] = sid
         apps.append(
@@ -145,11 +147,8 @@ def _serialize_entry(hass: HomeAssistant, entry: HabrewConfigEntry, catalog: Cat
                 "entity_id": ent_reg.async_get_entity_id("update", DOMAIN, f"{entry.entry_id}_{sid}"),
                 "installed_version": installed.version if installed else None,
                 "app_id": installed.app_id if installed else (release.app_id if release else None),
-                "latest_version": release.version if release else None,
-                "update_available": _is_newer(
-                    release.version if release else None,
-                    installed.version if installed else None,
-                ),
+                "latest_version": latest,
+                "update_available": _is_newer(latest, installed.version if installed else None),
                 "package_id": release.package_id if release else None,
                 "icon": release.icon if release else None,
                 "release_url": release.release_url if release else None,
@@ -459,3 +458,38 @@ async def ws_devmode_extend(
         connection.send_error(msg["id"], err.translation_key or "devmode_failed", str(err))
         return
     connection.send_result(msg["id"], _serialize_devmode(coordinator))
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "habrew/app/uninstall",
+        vol.Required("entry_id"): str,
+        vol.Required("app_id"): str,
+        vol.Optional("subentry_id"): str,
+        vol.Optional("reinstall", default=False): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_app_uninstall(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict[str, Any]
+) -> None:
+    """Remove an app from the TV; optionally stop managing it, or install it again right away.
+
+    ``reinstall`` is the way out of "Author certificate not match": the app loses its data.
+    """
+    try:
+        entry = _entry(hass, msg["entry_id"])
+        coordinator = _coordinator(hass, msg["entry_id"])
+        sub = entry.subentries.get(msg.get("subentry_id", ""))
+        if msg.get("subentry_id") and (sub is None or sub.subentry_type != SUBENTRY_APP):
+            raise HomeAssistantError("Unknown app")
+        await coordinator.async_uninstall(msg["app_id"])
+        if sub is not None and msg["reinstall"]:
+            await coordinator.async_install(sub.subentry_id)
+        elif sub is not None:
+            hass.config_entries.async_remove_subentry(entry, sub.subentry_id)
+    except HomeAssistantError as err:
+        connection.send_error(msg["id"], err.translation_key or "uninstall_failed", str(err))
+        return
+    connection.send_result(msg["id"])

@@ -10,6 +10,8 @@ On LG TVs HA-Brew also keeps the **Developer Mode session** alive, so your homeb
 
 ![HA-Brew panel](docs/panel.png)
 
+**→ [Step-by-step installation guide](docs/installation.md)** · [Návod v češtině](docs/installation.cs.md)
+
 ## How it works
 
 ### Samsung (Tizen)
@@ -55,7 +57,7 @@ No Tizen Studio, no webOS CLI, no PC and no extra add-on are needed. Everything 
 
 HA-Brew adds a **HA-Brew** entry to the sidebar (admins only):
 
-- **TVs**: every app on each TV with the installed and the available version. Install, update, reinstall, launch (▶) or remove managed apps. Apps that were installed some other way can be taken over with **Manage**, if the catalog has them.
+- **TVs**: every app on each TV with the installed and the available version. Install, update, reinstall, launch (▶), stop managing or uninstall apps from the TV. Apps that were installed some other way can be taken over with **Manage**, if the catalog has them.
 - **Catalog**: Samsung: about 200 community Tizen web apps from the [Apps2Samsung catalog](https://github.com/Apps2Samsung/tizen-community-packages), with search, categories, Tizen version requirements and warnings (root, closed source, self-updating, Partner certificate). LG: the [webOS Homebrew repository](https://repo.webosbrew.org) (apps marked *needs root* do not work without root). Add any of them to a TV and install it right away. Downloads are checked against the catalog's SHA-256.
 - **Certificates** (Samsung only): the signing certificates of each TV, their expiry and which apps use them.
 
@@ -102,6 +104,10 @@ HA-Brew then waits until the TV answers (60 s by default) and sends the wake-up 
 A Tizen app can only be updated with the **same author certificate** it was first installed with. If you get the error *"Author certificate not match"*, the app was installed with another tool's certificate. Find that certificate and add it. If you can't find it, the only option is to uninstall the app on the TV and install it fresh through HA-Brew, which loses the app's data.
 
 Certificates are stored in `<config>/.storage/habrew/`, which is not reachable over the web. Samsung certificates expire after about a year. HA-Brew shows the expiry date of each certificate.
+
+## Reporting problems
+
+*Settings → Devices & services → HA-Brew → ⋮ → Download diagnostics* (with the TV on) creates a file with the TV model, system version, apps and the last errors; addresses, keys, serial numbers and certificate details are removed. Attach it to a [GitHub issue](https://github.com/Michailjovic/HA-Brew/issues).
 
 ## Example automation
 

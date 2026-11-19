@@ -65,8 +65,7 @@ class HabrewAppUpdate(CoordinatorEntity[HabrewCoordinator], UpdateEntity):
 
     @property
     def latest_version(self) -> str | None:
-        release = self._release
-        return release.version if release else None
+        return self.coordinator.latest_version(self._subentry.subentry_id)
 
     @property
     def title(self) -> str | None:
