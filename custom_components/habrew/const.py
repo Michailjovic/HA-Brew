@@ -6,12 +6,20 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "habrew"
-VERSION: Final = "0.2.3"
+VERSION: Final = "0.3.0"
 USER_AGENT: Final = f"HA-Brew/{VERSION}"
 
 PLATFORM_TIZEN: Final = "tizen"
+PLATFORM_WEBOS: Final = "webos"
 
 CONF_PLATFORM: Final = "platform"
+
+# webOS TV (Developer Mode SSH)
+CONF_SSH_KEY: Final = "ssh_key"
+CONF_PASSPHRASE: Final = "passphrase"
+CONF_SERIAL: Final = "serial"
+DEVMODE_RESET_INTERVAL: Final = timedelta(hours=24)
+DEVMODE_WARN_HOURS: Final = 7 * 24
 
 SUBENTRY_CERTIFICATE: Final = "certificate"
 SUBENTRY_APP: Final = "app"

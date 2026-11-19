@@ -50,7 +50,7 @@ const STRINGS = {
     installed_on: "Installed",
     requires: "Tizen ≥ {v}",
     partner: "Partner certificate",
-    flag_root: "root",
+    flag_root: "needs root",
     "flag_closed-source": "closed source",
     "flag_self-updating": "self-updating",
     catalog_credit: "Catalog: Apps2Samsung community packages",
@@ -90,6 +90,17 @@ const STRINGS = {
     show: "Show",
     origin_store: "Samsung store",
     origin_system: "System",
+    devmode: "Developer Mode",
+    devmode_left: "{h} h left",
+    devmode_until: "until {d}",
+    devmode_unknown: "not checked yet",
+    devmode_extend: "Extend",
+    devmode_extended: "Developer Mode extended.",
+    devmode_hint: "LG removes all Developer Mode apps when the session runs out. HA-Brew extends it once a day.",
+    takeover_hint_webos: "HA-Brew will update this app from the selected source.",
+    no_certs_needed: "LG TVs do not need signing certificates.",
+    platform_tizen: "Samsung",
+    platform_webos: "LG",
   },
   cs: {
     tvs: "Televize",
@@ -136,7 +147,7 @@ const STRINGS = {
     installed_on: "Nainstalováno",
     requires: "Tizen ≥ {v}",
     partner: "Partner certifikát",
-    flag_root: "root",
+    flag_root: "vyžaduje root",
     "flag_closed-source": "uzavřený kód",
     "flag_self-updating": "aktualizuje se sama",
     catalog_credit: "Katalog: Apps2Samsung community packages",
@@ -176,6 +187,17 @@ const STRINGS = {
     show: "Zobrazit",
     origin_store: "Obchod Samsung",
     origin_system: "Systémová",
+    devmode: "Developer Mode",
+    devmode_left: "zbývá {h} h",
+    devmode_until: "do {d}",
+    devmode_unknown: "zatím neověřeno",
+    devmode_extend: "Prodloužit",
+    devmode_extended: "Developer Mode prodloužen.",
+    devmode_hint: "Po vypršení relace LG smaže všechny aplikace z Developer Mode. HA-Brew ji prodlužuje jednou denně.",
+    takeover_hint_webos: "HA-Brew bude aplikaci aktualizovat z vybraného zdroje.",
+    no_certs_needed: "Televize LG podpisové certifikáty nepotřebují.",
+    platform_tizen: "Samsung",
+    platform_webos: "LG",
   },
 };
 
@@ -189,6 +211,8 @@ class HaBrewPanel extends HTMLElement {
     this._tab = "tvs";
     this._overview = null;
     this._catalog = null;
+    this._catalogs = {};
+    this._catalogPlatform = null;
     this._catalogError = null;
     this._busy = {};
     this._form = null; // {kind, entry, ...}
@@ -290,11 +314,20 @@ class HaBrewPanel extends HTMLElement {
     this._render();
   }
 
+  _platforms() {
+    return [...new Set((this._overview?.tvs || []).map((tv) => tv.platform))];
+  }
+
   async _loadCatalog(refresh = false) {
+    const platforms = this._platforms();
+    if (!platforms.includes(this._catalogPlatform)) this._catalogPlatform = platforms[0] || "tizen";
+    const platform = this._catalogPlatform;
     try {
-      this._catalog = await this._ws("catalog", { refresh });
+      if (refresh || !this._catalogs[platform]) this._catalogs[platform] = await this._ws("catalog", { refresh, platform });
+      this._catalog = this._catalogs[platform];
       this._catalogError = null;
     } catch (err) {
+      this._catalog = null;
       this._catalogError = err.message || String(err);
     }
   }
@@ -323,6 +356,17 @@ class HaBrewPanel extends HTMLElement {
       case "refresh-catalog":
         await this._run("catalog", () => this._loadCatalog(true));
         break;
+      case "catalog-platform":
+        this._catalogPlatform = el.dataset.platform;
+        this._form = null;
+        this._catalog = null;
+        this._render();
+        await this._loadCatalog();
+        this._render();
+        break;
+      case "devmode-extend":
+        await this._run(`devmode:${entry}`, () => this._ws("devmode/extend", { entry_id: entry }), this.t("devmode_extended"));
+        break;
       case "install":
         await this._install(entry, sub);
         break;
@@ -346,7 +390,7 @@ class HaBrewPanel extends HTMLElement {
         this._render();
         break;
       case "form-github":
-        this._form = { kind: "github", entry, name: el.dataset.name || "" };
+        this._form = { kind: "github", entry, name: el.dataset.name || "", repo: el.dataset.repo || "", pattern: el.dataset.pattern || "" };
         this._render();
         break;
       case "form-catalog":
@@ -428,15 +472,15 @@ class HaBrewPanel extends HTMLElement {
       payload = {
         entry_id: entry,
         source: "github",
-        certificate: fd.certificate,
         name: fd.name || undefined,
         repo: fd.repo,
-        asset_pattern: fd.asset_pattern || "\\.wgt$",
+        asset_pattern: fd.asset_pattern || undefined,
         include_prereleases: fd.include_prereleases === "on",
       };
     } else {
-      payload = { entry_id: entry, source: "catalog", certificate: fd.certificate, catalog_key: fd.catalog_key };
+      payload = { entry_id: entry, source: "catalog", catalog_key: fd.catalog_key };
     }
+    if (fd.certificate) payload.certificate = fd.certificate;
     const installNow = fd.install_now === "on";
     const result = await this._run("form", () => this._ws("app/add", payload));
     if (!result) return;
@@ -512,7 +556,7 @@ class HaBrewPanel extends HTMLElement {
 
   _tvCard(tv) {
     const busy = this._busy[`refresh:${tv.entry_id}`];
-    const sub = [tv.model, tv.platform_version ? `Tizen ${tv.platform_version}` : "", tv.host].filter(Boolean).join(" · ");
+    const sub = [tv.model, tv.platform_version ? `${tv.os_name} ${tv.platform_version}` : "", tv.host].filter(Boolean).join(" · ");
     const managed = tv.apps.length
       ? `<div class="table">
           <div class="row head"><div>${this.t("app")}</div><div>${this.t("on_tv")}</div><div>${this.t("available")}</div><div></div></div>
@@ -533,6 +577,7 @@ class HaBrewPanel extends HTMLElement {
         </div>
       </div>
       ${tv.loaded && !tv.reachable ? `<div class="hint warn">${this.t("tv_offline_hint")} ${tv.wake_method !== "none" ? this.t("wake_hint") : this.t("needs_tv_on")}</div>` : ""}
+      ${tv.platform === "webos" && tv.loaded ? this._devmodeRow(tv) : ""}
       <div class="section-title">${this.t("managed")}</div>
       ${managed}
       ${this._form?.kind === "github" && this._form.entry === tv.entry_id ? this._githubForm(tv) : `<div class="add-row"><button class="btn" data-action="form-github" data-entry="${tv.entry_id}"><ha-icon icon="mdi:github"></ha-icon>${this.t("add_github")}</button></div>`}
@@ -541,6 +586,23 @@ class HaBrewPanel extends HTMLElement {
       ${store.length ? `<details class="store"><summary class="section-title">${this.t("store_apps")} <span class="muted">(${this.t("count", { n: store.length })})</span></summary>
         <div class="hint">${this.t("store_hint")}</div>
         <div class="table">${store.map((a) => this._storeRow(tv, a)).join("")}</div></details>` : ""}
+    </div>`;
+  }
+
+  _devmodeRow(tv) {
+    const dm = tv.devmode || {};
+    const h = dm.remaining_hours;
+    const cls = h == null ? "warn" : h < 72 ? "err-chip" : h < 168 ? "warn" : "ok";
+    const until = dm.expires_at ? this.t("devmode_until", { d: new Date(dm.expires_at).toLocaleDateString() }) : "";
+    const busy = this._busy[`devmode:${tv.entry_id}`];
+    return `<div class="devmode">
+      <ha-icon icon="mdi:timer-sand"></ha-icon>
+      <div class="devmode-text"><div><b>${this.t("devmode")}</b>
+        <span class="chip ${cls}">${h == null ? this.t("devmode_unknown") : this.t("devmode_left", { h: Math.floor(h) })}</span>
+        <span class="muted small">${esc(until)}</span></div>
+        ${dm.error ? `<div class="err small">${esc(dm.error)}</div>` : `<div class="muted small">${this.t("devmode_hint")}</div>`}
+      </div>
+      <button class="btn small" data-action="devmode-extend" data-entry="${tv.entry_id}" ${busy ? "disabled" : ""}><ha-icon icon="mdi:timer-refresh-outline"></ha-icon>${this.t("devmode_extend")}</button>
     </div>`;
   }
 
@@ -573,7 +635,7 @@ class HaBrewPanel extends HTMLElement {
         : `<button class="icon-btn" title="${this.t("remove")}" data-action="remove" data-entry="${tv.entry_id}" data-sub="${a.subentry_id}" ${busy ? "disabled" : ""}><ha-icon icon="mdi:delete-outline"></ha-icon></button>`;
     return `<div class="row">
       <div class="app">${icon}<div><div class="app-name">${esc(a.title)}</div>
-        <div class="muted small">${src} · ${esc(a.certificate || "?")}</div>
+        <div class="muted small">${src}${tv.needs_certificate ? ` · ${esc(a.certificate || "?")}` : ""}</div>
         ${a.error ? `<div class="err small">${esc(a.error)}</div>` : ""}</div></div>
       <div><span class="ver">${esc(a.installed_version || "—")}</span></div>
       <div><span class="ver ${a.update_available ? "new" : ""}">${esc(a.latest_version || "—")}</span></div>
@@ -587,7 +649,9 @@ class HaBrewPanel extends HTMLElement {
     }
     const action = a.catalog.length
       ? `<button class="btn" data-action="form-manage" data-entry="${tv.entry_id}" data-pkg="${esc(a.package_id)}">${this.t("take_over")}</button>`
-      : `<span class="muted small">${this.t("not_in_catalog")}</span>
+      : a.preset
+        ? `<button class="btn" data-action="form-github" data-entry="${tv.entry_id}" data-name="${esc(a.preset.name)}" data-repo="${esc(a.preset.repo)}" data-pattern="${esc(a.preset.asset_pattern)}"><ha-icon icon="mdi:github"></ha-icon>${this.t("take_over")}</button>`
+        : `<span class="muted small">${this.t("not_in_catalog")}</span>
          <button class="btn small" data-action="form-github" data-entry="${tv.entry_id}" data-name="${esc(a.title)}"><ha-icon icon="mdi:github"></ha-icon>${this.t("add_github")}</button>`;
     const newest = a.catalog.map((c) => c.version).filter(Boolean).sort().pop();
     const launchBtn = this._launchBtn(tv, a);
@@ -616,6 +680,7 @@ class HaBrewPanel extends HTMLElement {
   }
 
   _certSelect(tv) {
+    if (!tv.needs_certificate) return "";
     if (!tv.certificates.length) return null;
     return `<label>${this.t("certificate")}<select name="certificate">${tv.certificates
       .map((c) => `<option value="${c.id}">${esc(c.title)}${c.author_cn ? ` (${esc(c.author_cn)})` : ""}</option>`)
@@ -637,12 +702,12 @@ class HaBrewPanel extends HTMLElement {
 
   _manageForm(tv, a) {
     const certs = this._certSelect(tv);
-    if (!certs) return this._noCert(tv);
+    if (certs === null) return this._noCert(tv);
     return `<form class="inline-form">
       <input type="hidden" name="entry_id" value="${tv.entry_id}">
       <input type="hidden" name="catalog_label" value="${esc(a.title)}">
       <div class="form-title">${this.t("take_over")}: ${esc(a.title)} <span class="ver muted">${esc(a.version)}</span></div>
-      <div class="hint form-hint">${this.t("takeover_hint")}</div>
+      <div class="hint form-hint">${this.t(tv.needs_certificate ? "takeover_hint" : "takeover_hint_webos")}</div>
       <label>${this.t("variant")}<select name="catalog_key">${a.catalog
         .map((c) => `<option value="${esc(c.key)}">${esc(c.name)}${c.variant && c.variant !== c.name ? ` – ${esc(c.variant)}` : ""} (${esc(c.version)})</option>`)
         .join("")}</select></label>
@@ -653,13 +718,13 @@ class HaBrewPanel extends HTMLElement {
 
   _githubForm(tv) {
     const certs = this._certSelect(tv);
-    if (!certs) return this._noCert(tv);
+    if (certs === null) return this._noCert(tv);
     return `<form class="inline-form">
       <input type="hidden" name="entry_id" value="${tv.entry_id}">
       <div class="form-title"><ha-icon icon="mdi:github"></ha-icon> ${this.t("add_github")}</div>
       <label>${this.t("name")}<input name="name" placeholder="Nuvio TV" value="${esc(this._form?.name || "")}"></label>
-      <label>${this.t("repo")}<input name="repo" placeholder="NuvioMedia/NuvioTVSmart" required></label>
-      <label>${this.t("pattern")}<input name="asset_pattern" value="\\.wgt$"></label>
+      <label>${this.t("repo")}<input name="repo" placeholder="NuvioMedia/NuvioTVSmart" value="${esc(this._form?.repo || "")}" required></label>
+      <label>${this.t("pattern")}<input name="asset_pattern" value="${esc(this._form?.pattern || tv.default_pattern || "")}"></label>
       ${certs}
       <label class="check"><input type="checkbox" name="include_prereleases"> ${this.t("prereleases")}</label>
       ${this._formButtons(true)}
@@ -670,11 +735,11 @@ class HaBrewPanel extends HTMLElement {
   _catalogView() {
     if (!this._catalog && !this._catalogError) return `<div class="empty">${this.t("loading")}</div>`;
     if (this._catalogError) {
-      return `<div class="card empty">${this.t("catalog_error")}<br><span class="muted small">${esc(this._catalogError)}</span><br><br>
+      return `${this._catalogSwitcher()}<div class="card empty">${this.t("catalog_error")}<br><span class="muted small">${esc(this._catalogError)}</span><br><br>
         <button class="btn" data-action="refresh-catalog">${this.t("refresh")}</button></div>`;
     }
     const cats = this._catalog.categories || {};
-    return `<div class="filters">
+    return `<div class="filters">${this._catalogSwitcher()}
         <input class="search" data-filter="q" placeholder="${this.t("search")}" value="${esc(this._filter.q)}">
         <select data-filter="cat"><option value="">${this.t("all_categories")}</option>
           ${Object.entries(cats).map(([k, v]) => `<option value="${esc(k)}" ${this._filter.cat === k ? "selected" : ""}>${esc(v)}</option>`).join("")}
@@ -683,7 +748,15 @@ class HaBrewPanel extends HTMLElement {
         <button class="icon-btn" title="${this.t("refresh")}" data-action="refresh-catalog" ${this._busy.catalog ? "disabled" : ""}><ha-icon icon="mdi:refresh"></ha-icon></button>
       </div>
       <div class="grid" id="catalog-list">${this._catalogItems()}</div>
-      <div class="credit"><a href="https://github.com/Apps2Samsung/tizen-community-packages" target="_blank" rel="noreferrer">${this.t("catalog_credit")}</a></div>`;
+      <div class="credit"><a href="${esc(this._catalog.credit_url || "")}" target="_blank" rel="noreferrer">${this.t("catalog")}: ${esc(this._catalog.credit || "")}</a></div>`;
+  }
+
+  _catalogSwitcher() {
+    const platforms = this._platforms();
+    if (platforms.length < 2) return "";
+    return `<div class="seg">${platforms
+      .map((p) => `<button class="seg-btn ${p === this._catalogPlatform ? "active" : ""}" data-action="catalog-platform" data-platform="${esc(p)}">${esc(this.t(`platform_${p}`))}</button>`)
+      .join("")}</div>`;
   }
 
   _catalogGroups() {
@@ -710,7 +783,7 @@ class HaBrewPanel extends HTMLElement {
   _catalogItems() {
     if (!this._catalog) return "";
     const q = this._filter.q.trim().toLowerCase();
-    const tvs = (this._overview?.tvs || []).filter((tv) => tv.loaded);
+    const tvs = (this._overview?.tvs || []).filter((tv) => tv.loaded && tv.platform === this._catalog.platform);
     const groups = this._catalogGroups()
       .map((g) => ({ ...g, entries: g.entries.filter((e) => this._filter.adult || !e.adult) }))
       .filter((g) => g.entries.length && (!this._filter.cat || g.entries.some((e) => e.category === this._filter.cat)))
@@ -749,7 +822,7 @@ class HaBrewPanel extends HTMLElement {
           </div>
           <div class="desc">${esc(e.description)}</div>
           <div class="meta"><span class="ver">${esc(versions.join(" / ") || "?")}</span>
-            ${minReq ? `<span class="chip">${this.t("requires", { v: esc(minReq) })}</span>` : ""}
+            ${minReq && this._catalog.platform === "tizen" ? `<span class="chip">${this.t("requires", { v: esc(minReq) })}</span>` : ""}
             ${g.entries.some((x) => x.cert_level === "partner") ? `<span class="chip warn">${this.t("partner")}</span>` : ""}${flags}</div>
           ${chips ? `<div class="meta">${chips}</div>` : ""}
           <div class="item-foot">
@@ -764,14 +837,16 @@ class HaBrewPanel extends HTMLElement {
 
   _catalogForm(g, statuses) {
     const takeover = this._form.mode === "takeover";
-    const candidates = statuses.filter((st) => st.tv.certificates.length && (takeover ? st.state === "installed" : st.state !== "managed"));
-    if (!candidates.length) return statuses.length ? this._noCert(statuses[0].tv) : "";
+    const candidates = statuses.filter(
+      (st) => (!st.tv.needs_certificate || st.tv.certificates.length) && (takeover ? st.state === "installed" : st.state !== "managed"),
+    );
+    if (!candidates.length) return statuses.length && statuses[0].tv.needs_certificate ? this._noCert(statuses[0].tv) : "";
     const current = candidates.find((st) => st.tv.entry_id === this._form.entry) || candidates[0];
     const variants = takeover ? g.entries.filter((e) => e.package_id === current.package_id) : g.entries;
     const label = (e) => `${esc(e.variant && e.variant !== e.name ? e.variant : e.name)} (${esc(e.version)}${e.required_version ? `, Tizen ≥ ${esc(e.required_version)}` : ""})`;
     return `<form class="inline-form">
       <input type="hidden" name="catalog_label" value="${esc(g.name)}">
-      ${takeover ? `<div class="hint form-hint">${this.t("takeover_hint")}</div>` : ""}
+      ${takeover ? `<div class="hint form-hint">${this.t(current.tv.needs_certificate ? "takeover_hint" : "takeover_hint_webos")}</div>` : ""}
       <label>${this.t("tv")}<select name="entry_id">${candidates
         .map((st) => `<option value="${st.tv.entry_id}" ${st.tv.entry_id === current.tv.entry_id ? "selected" : ""}>${esc(st.tv.title)}</option>`)
         .join("")}</select></label>
@@ -783,7 +858,9 @@ class HaBrewPanel extends HTMLElement {
 
   // ------------------------------------------------------------------ certificates
   _certView() {
-    return this._overview.tvs
+    const tvs = this._overview.tvs.filter((tv) => tv.needs_certificate);
+    if (!tvs.length) return `<div class="card empty">${this.t("no_certs_needed")}</div>`;
+    return tvs
       .map(
         (tv) => `<div class="card">
         <div class="card-head"><div class="h1">${esc(tv.title)}</div>
@@ -888,6 +965,14 @@ input, select { font: inherit; padding:8px 10px; border-radius:8px; border:1px s
 details.store summary { cursor:pointer; list-style:revert; }
 .form-hint { grid-column:1/-1; margin:0; }
 .empty { text-align:center; padding:40px 16px; color: var(--secondary-text-color); }
+.devmode { display:flex; align-items:center; gap:12px; margin-top:12px; padding:10px 12px; border-radius:8px; background: var(--secondary-background-color); }
+.devmode > ha-icon { color: var(--secondary-text-color); }
+.devmode-text { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.devmode-text .chip { margin-left:6px; }
+.chip.err-chip { background: rgba(244,67,54,.15); color: var(--error-color, #f44336); }
+.seg { display:inline-flex; border:1px solid var(--divider-color); border-radius:18px; overflow:hidden; }
+.seg-btn { background:none; border:none; padding:7px 14px; cursor:pointer; color: var(--primary-text-color); font:inherit; }
+.seg-btn.active { background: var(--primary-color); color: var(--text-primary-color, #fff); }
 @media (max-width: 700px) {
   .row { grid-template-columns: minmax(0,1fr) auto auto; }
   .row.head { display:none; }

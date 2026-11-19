@@ -1,3 +1,4 @@
 pytest-homeassistant-custom-component
 lxml
 home-assistant-frontend
+asyncssh

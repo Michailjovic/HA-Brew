@@ -3,22 +3,41 @@
     "step": {
       "user": {
         "title": "Přidat televizi",
-        "description": "Na televizi zapni Developer Mode, nastav **Host PC IP** na IP adresu tohoto Home Assistantu a televizi restartuj.",
+        "description": "**Samsung:** na televizi zapni Developer Mode, nastav **Host PC IP** na IP adresu tohoto Home Assistantu a televizi restartuj.\n\n**LG:** nainstaluj z LG Content Store aplikaci **Developer Mode**, přihlas se vývojářským účtem LG a zapni **Dev Mode Status**.",
         "data": {
-          "name": "Název",
+          "name": "Název (nepovinné)",
           "host": "IP adresa televize",
           "platform": "Platforma"
         },
         "data_description": {
           "host": "Televize musí být zapnutá a v Developer Mode."
         }
+      },
+      "webos": {
+        "title": "LG TV: klíč z Developer Mode",
+        "description": "Na televizi otevři aplikaci **Developer Mode**, zapni **Key Server** a opiš **passphrase** z obrazovky (6 znaků). Home Assistant si z {host} jednou stáhne klíč, pak můžeš Key Server zase vypnout.",
+        "data": {
+          "passphrase": "Passphrase"
+        }
+      },
+      "reauth_confirm": {
+        "title": "LG TV: nový klíč z Developer Mode",
+        "description": "Televize {name} už nepřijímá uložený klíč (Developer Mode byl přeinstalován nebo vypnut a znovu zapnut). Otevři aplikaci **Developer Mode**, zapni **Key Server** a opiš novou passphrase.",
+        "data": {
+          "passphrase": "Passphrase"
+        }
       }
     },
     "error": {
-      "cannot_connect": "Nelze se připojit k televizi. Zkontroluj, že je zapnutá, má zapnutý Developer Mode a Host PC IP je nastavená na IP tohoto Home Assistantu."
+      "cannot_connect": "Nelze se připojit k televizi. Zkontroluj, že je zapnutá, má zapnutý Developer Mode a Host PC IP je nastavená na IP tohoto Home Assistantu.",
+      "key_server": "Key Server na televizi není dostupný. Otevři na televizi aplikaci Developer Mode a zapni Key Server.",
+      "invalid_passphrase": "Špatná passphrase.",
+      "cannot_connect_webos": "Televize nepřijímá SSH spojení na portu 9922. Zkontroluj, že je zapnutý Dev Mode Status."
     },
     "abort": {
-      "already_configured": "Tato televize už je přidaná."
+      "already_configured": "Tato televize už je přidaná.",
+      "reauth_successful": "Klíč byl aktualizován.",
+      "wrong_tv": "Tohle je jiná televize (nesedí sériové číslo)."
     }
   },
   "config_subentries": {
@@ -69,7 +88,7 @@
       "step": {
         "user": {
           "title": "Přidat aplikaci",
-          "description": "Vyber známou aplikaci nebo vlastní GitHub repozitář a certifikát, kterým byla aplikace nainstalována.",
+          "description": "Vyber známou aplikaci nebo vlastní GitHub repozitář. U Samsungu i certifikát, kterým byla aplikace nainstalována.",
           "data": {
             "preset": "Aplikace",
             "certificate": "Podpisový certifikát",
@@ -84,7 +103,7 @@
             "asset_pattern": "Soubor z release (regulární výraz)"
           },
           "data_description": {
-            "asset_pattern": "Který soubor z release instalovat, např. `\\.wgt$`."
+            "asset_pattern": "Který soubor z release instalovat, např. `\\.wgt$` (Samsung) nebo `\\.ipk$` (LG)."
           }
         }
       },
@@ -104,7 +123,8 @@
   "selector": {
     "platform": {
       "options": {
-        "tizen": "Samsung (Tizen)"
+        "tizen": "Samsung (Tizen)",
+        "webos": "LG (webOS)"
       }
     },
     "cert_type": {
@@ -116,14 +136,16 @@
     "preset": {
       "options": {
         "nuvio": "Nuvio TV",
-        "custom": "Vlastní GitHub repozitář"
+        "custom": "Vlastní GitHub repozitář",
+        "nuvio_webos": "Nuvio TV",
+        "youtube_webos": "YouTube AdFree"
       }
     },
     "wake_method": {
       "options": {
         "none": "Nebudit",
         "wol": "Wake-on-LAN",
-        "entity": "Zapnout entitu (např. samsungtv_smart)"
+        "entity": "Zapnout entitu (např. samsungtv_smart, webostv)"
       }
     }
   },
@@ -169,6 +191,12 @@
     },
     "launch_failed": {
       "message": "Televize nemohla aplikaci spustit: {error}"
+    },
+    "auth_failed": {
+      "message": "Televize odmítla klíč z Developer Mode. Otevři integraci a zadej novou passphrase ({error})."
+    },
+    "devmode_failed": {
+      "message": "Relaci Developer Mode se nepodařilo prodloužit: {error}"
     }
   },
   "options": {
@@ -184,7 +212,7 @@
           "wake_timeout": "Čekat na televizi (sekundy)"
         },
         "data_description": {
-          "wake_entity": "Například media player z integrace Samsung TV Smart (samsungtv_smart).",
+          "wake_entity": "Například media player z integrace Samsung TV Smart (samsungtv_smart) nebo LG webOS TV (webostv).",
           "broadcast_address": "Prázdné = 255.255.255.255."
         }
       }
@@ -192,6 +220,24 @@
     "error": {
       "invalid_mac": "Neplatná MAC adresa.",
       "entity_required": "Vyber entitu."
+    }
+  },
+  "issues": {
+    "devmode_expiring": {
+      "title": "Na {tv} končí Developer Mode",
+      "description": "V relaci Developer Mode zbývá zhruba {hours} hodin. Až vyprší, televize smaže všechny aplikace nainstalované přes Developer Mode (Homebrew Channel, Nuvio, …). HA-Brew relaci prodlužuje jednou denně automaticky, to se nepovedlo ({error}).\n\nZapni televizi, otevři aplikaci **Developer Mode** a dej **Extend**, nebo na stránce zařízení stiskni **Prodloužit Developer Mode**. Pokud aplikace ukazuje vypnutý Dev Mode, přihlas se znovu a zapni ho."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "devmode_remaining": {
+        "name": "Zbývá Developer Mode"
+      }
+    },
+    "button": {
+      "devmode_extend": {
+        "name": "Prodloužit Developer Mode"
+      }
     }
   }
 }

@@ -8,19 +8,22 @@ import json
 import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from . import certificates
-from .catalog import CatalogClient, CatalogError
+from .catalog import WEBOSBREW_URL, CatalogClient, CatalogError, parse_webosbrew
 from .const import (
     CONF_ASSET_PATTERN,
     CONF_BROADCAST,
@@ -28,14 +31,20 @@ from .const import (
     CONF_CERT_ID,
     CONF_CERTIFICATE,
     CONF_MAC,
+    CONF_PASSPHRASE,
     CONF_PRERELEASES,
     CONF_REPO,
     CONF_SOURCE,
+    CONF_SSH_KEY,
     CONF_WAKE_ENTITY,
     CONF_WAKE_METHOD,
     CONF_WAKE_TIMEOUT,
     DEFAULT_WAKE_TIMEOUT,
+    DEVMODE_RESET_INTERVAL,
+    DEVMODE_WARN_HOURS,
     DOMAIN,
+    PLATFORM_TIZEN,
+    PLATFORM_WEBOS,
     SOURCE_CATALOG,
     STORAGE_VERSION,
     SUBENTRY_APP,
@@ -46,19 +55,18 @@ from .const import (
     WAKE_NONE,
     WAKE_WOL,
 )
-from .drivers.tizen import (
-    CertificateError,
-    SdbConnectError,
-    SdbError,
-    TizenApp,
-    TizenDevice,
-    TizenInstallError,
-    TizenLaunchError,
-    read_wgt_metadata,
-    resign_wgt,
+from .drivers.base import (
+    DeviceAuthError,
+    DeviceConnectError,
+    DeviceError,
+    InstallError,
+    LaunchError,
 )
+from .drivers.tizen import CertificateError, TizenDevice, resign_wgt
+from .drivers.webos import DevModeError, WebosDevice, check_session, reset_session
 from .drivers.wol import send_magic_packet
 from .github import GitHubClient, GitHubError
+from .platforms import PlatformSpec, spec_for
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -92,21 +100,48 @@ class AppRelease:
 
 
 @dataclass
+class DevModeInfo:
+    """LG Developer Mode session as last seen at LG (webOS only)."""
+
+    remaining: int | None = None  # seconds
+    checked_at: str | None = None  # ISO timestamps
+    last_reset: str | None = None
+    error: str | None = None
+
+    @property
+    def remaining_hours(self) -> float | None:
+        return round(self.remaining / 3600, 1) if self.remaining is not None else None
+
+    @property
+    def expires_at(self) -> datetime | None:
+        if self.remaining is None or not self.checked_at:
+            return None
+        checked = dt_util.parse_datetime(self.checked_at)
+        return checked + timedelta(seconds=self.remaining) if checked else None
+
+
+@dataclass
 class HabrewData:
     """Snapshot shared by all entities of one TV."""
 
     reachable: bool = False
-    apps: dict[str, TizenApp] = field(default_factory=dict)  # by package id
+    apps: dict[str, Any] = field(default_factory=dict)  # TizenApp | WebosApp by package id
     releases: dict[str, AppRelease] = field(default_factory=dict)  # by subentry id
     errors: dict[str, str] = field(default_factory=dict)  # by subentry id
+    devmode: DevModeInfo | None = None
 
 
-def get_catalog_client(hass: HomeAssistant) -> CatalogClient:
-    """One catalog cache for all TVs."""
+def get_catalog_client(hass: HomeAssistant, platform: str = PLATFORM_TIZEN) -> CatalogClient:
+    """One catalog cache per platform, shared by all TVs."""
     domain_data = hass.data.setdefault(DOMAIN, {})
-    if "catalog" not in domain_data:
-        domain_data["catalog"] = CatalogClient(async_get_clientsession(hass), USER_AGENT)
-    return domain_data["catalog"]
+    key = "catalog" if platform == PLATFORM_TIZEN else f"catalog_{platform}"
+    if key not in domain_data:
+        session = async_get_clientsession(hass)
+        if platform == PLATFORM_WEBOS:
+            domain_data[key] = CatalogClient(session, USER_AGENT, WEBOSBREW_URL, parse_webosbrew)
+        else:
+            domain_data[key] = CatalogClient(session, USER_AGENT)
+    return domain_data[key]
 
 
 class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
@@ -122,9 +157,11 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             name=f"{DOMAIN} {entry.title}",
             update_interval=UPDATE_INTERVAL,
         )
-        self.device = TizenDevice(entry.data[CONF_HOST])
+        self.spec: PlatformSpec = spec_for(entry.data)
+        self.device = self._create_device()
         self.github = GitHubClient(async_get_clientsession(hass), USER_AGENT)
-        self.catalog = get_catalog_client(hass)
+        self.catalog = get_catalog_client(hass, self.spec.key)
+        self._devmode_token: str | None = None
         self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
         self._cache_dir = certificates.cache_dir(hass, entry.entry_id)
         self.tv_lock = asyncio.Lock()
@@ -134,10 +171,20 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
     # ------------------------------------------------------------------ helpers
 
     @property
+    def is_webos(self) -> bool:
+        return self.spec.key == PLATFORM_WEBOS
+
+    def _create_device(self) -> TizenDevice | WebosDevice:
+        data = self.config_entry.data
+        if self.is_webos:
+            return WebosDevice(data[CONF_HOST], data[CONF_SSH_KEY], data[CONF_PASSPHRASE])
+        return TizenDevice(data[CONF_HOST])
+
+    @property
     def app_subentries(self) -> dict[str, ConfigSubentry]:
         return {sid: s for sid, s in self.config_entry.subentries.items() if s.subentry_type == SUBENTRY_APP}
 
-    def installed_app(self, subentry_id: str) -> TizenApp | None:
+    def installed_app(self, subentry_id: str) -> Any | None:
         release = self.data.releases.get(subentry_id)
         if release is None:
             return None
@@ -146,31 +193,46 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         )
 
     def _cache_path(self, subentry_id: str) -> Path:
-        return self._cache_dir / f"{subentry_id}.wgt"
+        return self._cache_dir / f"{subentry_id}{self.spec.suffix}"
 
     async def async_load(self) -> None:
         """Restore the last known state so entities have values while the TV is off."""
         stored = await self._store.async_load() or {}
-        app_names = {f.name for f in fields(TizenApp)}
+        app_cls = self.spec.app_cls
+        app_names = {f.name for f in fields(app_cls)}
+        devmode = None
+        if self.is_webos:
+            dm = stored.get("devmode") or {}
+            devmode = DevModeInfo(**{k: v for k, v in dm.items() if k in {f.name for f in fields(DevModeInfo)}})
+            self._devmode_token = stored.get("devmode_token")
         self.data = HabrewData(
             reachable=False,
             apps={
-                k: TizenApp(**{kk: vv for kk, vv in v.items() if kk in app_names})
+                k: app_cls(**{kk: vv for kk, vv in v.items() if kk in app_names})
                 for k, v in stored.get("apps", {}).items()
             },
             releases={
                 k: AppRelease.from_dict(v) for k, v in stored.get("releases", {}).items() if k in self.app_subentries
             },
+            devmode=devmode,
         )
 
+    def _payload(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "apps": {k: asdict(v) for k, v in self.data.apps.items()},
+            "releases": {k: asdict(v) for k, v in self.data.releases.items()},
+        }
+        if self.is_webos:
+            out["devmode"] = asdict(self.data.devmode) if self.data.devmode else None
+            out["devmode_token"] = self._devmode_token
+        return out
+
     def _save(self) -> None:
-        self._store.async_delay_save(
-            lambda: {
-                "apps": {k: asdict(v) for k, v in self.data.apps.items()},
-                "releases": {k: asdict(v) for k, v in self.data.releases.items()},
-            },
-            5,
-        )
+        self._store.async_delay_save(self._payload, 5)
+
+    async def async_flush(self) -> None:
+        """Write pending state now (the entry reloads whenever an app is added or removed)."""
+        await self._store.async_save(self._payload())
 
     # ------------------------------------------------------------------ polling
 
@@ -180,9 +242,12 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             apps=dict(self.data.apps),
             releases={k: v for k, v in self.data.releases.items() if k in self.app_subentries},
             errors={},
+            devmode=self.data.devmode,
         )
         if not self.tv_lock.locked():
             await self._refresh_tv(data)
+        if self.is_webos:
+            await self._refresh_devmode(data)
         for subentry_id, subentry in self.app_subentries.items():
             try:
                 if subentry.data.get(CONF_SOURCE) == SOURCE_CATALOG:
@@ -203,6 +268,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             apps=dict(self.data.apps),
             releases=self.data.releases,
             errors=self.data.errors,
+            devmode=self.data.devmode,
         )
         await self._refresh_tv(data)
         self.async_set_updated_data(data)
@@ -212,15 +278,96 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         try:
             async with self.tv_lock:
                 apps = await asyncio.wait_for(self.device.list_apps(), TV_TIMEOUT * 5)
-        except (SdbConnectError, TimeoutError, OSError):
+                if self.is_webos:
+                    self._devmode_token = await asyncio.wait_for(self.device.session_token(), TV_TIMEOUT * 2)
+        except DeviceAuthError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except (DeviceConnectError, TimeoutError, OSError):
             data.reachable = False
             return
-        except SdbError as err:
+        except DeviceError as err:
             _LOGGER.debug("Reading app list failed: %s", err)
             data.reachable = False
             return
         data.reachable = True
         data.apps = {a.package_id or a.app_id: a for a in apps}
+
+    # ------------------------------------------------------------------ webOS Developer Mode session
+
+    async def _refresh_devmode(self, data: HabrewData, force_reset: bool = False) -> None:
+        """Check the session at LG and restart it once a day (works while the TV is off)."""
+        info = DevModeInfo(**asdict(data.devmode)) if data.devmode else DevModeInfo()
+        data.devmode = info
+        if not self._devmode_token:
+            info.error = "Session token not read yet - turn the TV on once."
+            self._update_devmode_issue(info)
+            return
+        session = async_get_clientsession(self.hass)
+        now = dt_util.utcnow()
+        last_reset = dt_util.parse_datetime(info.last_reset) if info.last_reset else None
+        try:
+            if force_reset or last_reset is None or now - last_reset >= DEVMODE_RESET_INTERVAL:
+                await reset_session(session, self._devmode_token, USER_AGENT)
+                info.last_reset = now.isoformat()
+            info.remaining = await check_session(session, self._devmode_token, USER_AGENT)
+            info.checked_at = now.isoformat()
+            info.error = None
+        except DevModeError as err:
+            info.error = str(err)
+            _LOGGER.warning("%s: Developer Mode session: %s", self.config_entry.title, err)
+        self._update_devmode_issue(info)
+
+    def _update_devmode_issue(self, info: DevModeInfo) -> None:
+        issue_id = f"devmode_{self.config_entry.entry_id}"
+        hours = info.remaining_hours
+        if info.error and info.checked_at is None and not self._devmode_token:
+            return  # nothing known yet; no point in alarming before the first contact
+        if info.error or (hours is not None and hours < DEVMODE_WARN_HOURS):
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.ERROR if (hours is not None and hours < 72) else ir.IssueSeverity.WARNING,
+                translation_key="devmode_expiring",
+                translation_placeholders={
+                    "tv": self.config_entry.title,
+                    "hours": str(int(hours)) if hours is not None else "?",
+                    "error": info.error or "-",
+                },
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    async def async_extend_devmode(self) -> None:
+        """Restart the Developer Mode session now (button / panel)."""
+        if not self._devmode_token or (self.data.devmode and self.data.devmode.error):
+            try:
+                async with self.tv_lock:
+                    self._devmode_token = await asyncio.wait_for(self.device.session_token(), TV_TIMEOUT * 2)
+            except (DeviceError, TimeoutError, OSError) as err:
+                if not self._devmode_token:
+                    raise HomeAssistantError(
+                        translation_domain=DOMAIN,
+                        translation_key="tv_unreachable",
+                        translation_placeholders={"error": str(err)},
+                    ) from err
+        data = HabrewData(
+            reachable=self.data.reachable,
+            apps=self.data.apps,
+            releases=self.data.releases,
+            errors=self.data.errors,
+            devmode=self.data.devmode,
+        )
+        await self._refresh_devmode(data, force_reset=True)
+        self.async_set_updated_data(data)
+        self._save()
+        if data.devmode and data.devmode.error:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="devmode_failed",
+                translation_placeholders={"error": data.devmode.error},
+            )
 
     async def _refresh_github_release(self, data: HabrewData, subentry_id: str, subentry: ConfigSubentry) -> None:
         asset = await self.github.latest_asset(
@@ -235,7 +382,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
             return
         _LOGGER.debug("Downloading %s %s", asset.repo, asset.name)
         package = await self.github.download(asset.url)
-        meta = await self.hass.async_add_executor_job(read_wgt_metadata, package)
+        meta = await self.hass.async_add_executor_job(self.spec.read_metadata, package)
         await self.hass.async_add_executor_job(self._write_cache, cache, package, asset.url)
         data.releases[subentry_id] = AppRelease(
             url=asset.url,
@@ -295,7 +442,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
     async def _probe(self) -> bool:
         try:
             await asyncio.wait_for(self.device.get_info(), TV_TIMEOUT * 2)
-        except (SdbError, TimeoutError, OSError):
+        except (DeviceError, TimeoutError, OSError):
             return False
         return True
 
@@ -349,13 +496,13 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         try:
             async with self.tv_lock:
                 await self.device.launch(app_id)
-        except TizenLaunchError as err:
+        except (LaunchError, ValueError) as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="launch_failed",
                 translation_placeholders={"error": str(err)},
             ) from err
-        except (SdbError, TimeoutError, OSError) as err:
+        except (DeviceError, TimeoutError, OSError) as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="tv_unreachable",
@@ -374,7 +521,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         self.async_update_listeners()
 
     async def async_install(self, subentry_id: str, progress: Callable[[int], None] | None = None) -> None:
-        """Sign the package with the app's certificate and install it on the TV."""
+        """Install the newest package on the TV (Tizen: signed with the app's certificate first)."""
         if subentry_id in self.progress:
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="install_running")
         subentry = self.config_entry.subentries.get(subentry_id)
@@ -387,9 +534,11 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
                 translation_key="no_release",
                 translation_placeholders={"app": subentry.title},
             )
-        cert_subentry = self.config_entry.subentries.get(subentry.data[CONF_CERTIFICATE])
-        if cert_subentry is None:
-            raise HomeAssistantError(translation_domain=DOMAIN, translation_key="certificate_missing")
+        cert_subentry = None
+        if self.spec.needs_certificate:
+            cert_subentry = self.config_entry.subentries.get(subentry.data.get(CONF_CERTIFICATE) or "")
+            if cert_subentry is None:
+                raise HomeAssistantError(translation_domain=DOMAIN, translation_key="certificate_missing")
 
         def report(pct: int) -> None:
             self._set_progress(subentry_id, pct)
@@ -408,7 +557,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         self,
         subentry_id: str,
         release: AppRelease,
-        cert_subentry: ConfigSubentry,
+        cert_subentry: ConfigSubentry | None,
         report: Callable[[int], None],
     ) -> None:
         cache = self._cache_path(subentry_id)
@@ -426,20 +575,21 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
                 raise HomeAssistantError(translation_domain=DOMAIN, translation_key="checksum_mismatch")
             await self.hass.async_add_executor_job(self._write_cache, cache, package, release.url)
         report(5)
-        try:
-            profile = await self.hass.async_add_executor_job(
-                certificates.load_profile,
-                self.hass,
-                self.config_entry.entry_id,
-                cert_subentry.data[CONF_CERT_ID],
-            )
-            signed = await self.hass.async_add_executor_job(resign_wgt, package, profile)
-        except (CertificateError, OSError) as err:
-            raise HomeAssistantError(
-                translation_domain=DOMAIN,
-                translation_key="certificate_invalid",
-                translation_placeholders={"error": str(err)},
-            ) from err
+        if cert_subentry is not None:
+            try:
+                profile = await self.hass.async_add_executor_job(
+                    certificates.load_profile,
+                    self.hass,
+                    self.config_entry.entry_id,
+                    cert_subentry.data[CONF_CERT_ID],
+                )
+                package = await self.hass.async_add_executor_job(resign_wgt, package, profile)
+            except (CertificateError, OSError) as err:
+                raise HomeAssistantError(
+                    translation_domain=DOMAIN,
+                    translation_key="certificate_invalid",
+                    translation_placeholders={"error": str(err)},
+                ) from err
         report(10)
 
         def on_progress(stage: str, pct: int) -> None:
@@ -447,8 +597,8 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
 
         try:
             async with self.tv_lock:
-                await self.device.install(signed, release.package_id, release.app_id, on_progress)
-        except TizenInstallError as err:
+                await self.device.install(package, release.package_id, release.app_id, on_progress)
+        except InstallError as err:
             key = {
                 "author_mismatch": "install_author_mismatch",
                 "certificate": "install_certificate",
@@ -459,16 +609,23 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
                 translation_key=key,
                 translation_placeholders={
                     "error": str(err),
-                    "certificate": cert_subentry.title,
+                    "certificate": cert_subentry.title if cert_subentry else "",
                 },
             ) from err
-        except SdbConnectError as err:
+        except DeviceAuthError as err:
+            self.config_entry.async_start_reauth(self.hass)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="auth_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        except DeviceConnectError as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="tv_unreachable",
                 translation_placeholders={"error": str(err)},
             ) from err
-        except (SdbError, TimeoutError, OSError) as err:
+        except (DeviceError, ValueError, TimeoutError, OSError) as err:
             raise HomeAssistantError(
                 translation_domain=DOMAIN,
                 translation_key="install_failed",

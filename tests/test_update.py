@@ -79,7 +79,7 @@ async def setup(hass: HomeAssistant, sdbd, tizenbrew_json, wgt):
 
 
 async def test_update_entity(hass: HomeAssistant, setup, sdbd, wgt) -> None:
-    entry, download = setup
+    _entry, download = setup
     state = hass.states.get("update.m70_nuvio_tv")
     assert state is not None, hass.states.async_entity_ids()
     assert state.state == "on"

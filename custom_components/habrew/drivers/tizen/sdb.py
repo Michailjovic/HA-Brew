@@ -11,6 +11,9 @@ import re
 import struct
 import time
 from collections.abc import Callable
+from typing import Self
+
+from ..base import DeviceConnectError, DeviceError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,11 +29,11 @@ _HEADER = struct.Struct("<6I")
 _MAX_PAYLOAD = 4096
 
 
-class SdbError(Exception):
+class SdbError(DeviceError):
     """Transport-level sdb failure."""
 
 
-class SdbConnectError(SdbError):
+class SdbConnectError(SdbError, DeviceConnectError):
     """TV is unreachable or refused the connection."""
 
 
@@ -89,7 +92,7 @@ class SdbConnection:
         self._connected: asyncio.Future[bool] | None = None
         self._wlock = asyncio.Lock()
 
-    async def __aenter__(self) -> SdbConnection:
+    async def __aenter__(self) -> Self:
         await self.connect()
         return self
 

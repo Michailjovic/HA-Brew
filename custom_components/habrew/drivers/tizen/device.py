@@ -7,6 +7,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from ..base import InstallError, LaunchError, check_id
 from .sdb import SDB_PORT, SdbConnection, SdbError
 
 _LOGGER = logging.getLogger(__name__)
@@ -15,14 +16,14 @@ REMOTE_DIR = "/home/owner/share/tmp/sdk_tools"
 REMOTE_PACKAGE = f"{REMOTE_DIR}/habrew-package.wgt"
 _INSTALL_DONE_RX = re.compile(
     r"spend time|install failed|download failed|check certificate error|invalid certificate chain",
-    re.I,
+    re.IGNORECASE,
 )
 _INSTALL_FAILED_RX = re.compile(
     r"install failed|check certificate error|invalid certificate chain|download failed",
-    re.I,
+    re.IGNORECASE,
 )
 _PERCENT_RX = re.compile(r"installing\[(\d+)\]")
-_FAIL_CODE_RX = re.compile(r"install failed\s*\[\s*([^\]]+)\]\s*(?:,\s*reason:\s*(.*))?", re.I)
+_FAIL_CODE_RX = re.compile(r"install failed\s*\[\s*([^\]]+)\]\s*(?:,\s*reason:\s*(.*))?", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -53,17 +54,11 @@ class TizenApp:
     install_source: str = ""  # installed_source_type: "1" = Samsung store
 
 
-class TizenInstallError(Exception):
+class TizenInstallError(InstallError):
     """vd_appinstall refused the package."""
 
-    def __init__(self, message: str, code: str = "", reason: str = "", kind: str = "unknown") -> None:
-        super().__init__(message)
-        self.code = code
-        self.reason = reason
-        self.kind = kind  # author_mismatch | certificate | platform | unknown
 
-
-class TizenLaunchError(Exception):
+class TizenLaunchError(LaunchError):
     """The TV refused to start the app."""
 
 
@@ -137,9 +132,10 @@ class TizenDevice:
 
     async def launch(self, app_id: str) -> str:
         """Start an installed app (Smart Hub launcher). Returns the TV's reply."""
+        check_id(app_id)
         async with self._connection() as conn:
             reply = await conn.shell(f"0 was_execute {app_id}", timeout=20)
-        if re.search(r"launch failed|not exist|not found", reply, re.I) or "launched" not in reply.lower():
+        if re.search(r"launch failed|not exist|not found", reply, re.IGNORECASE) or "launched" not in reply.lower():
             raise TizenLaunchError(reply.strip() or "No reply from the TV")
         return reply.strip()
 
@@ -156,6 +152,9 @@ class TizenDevice:
             if progress:
                 progress(stage, pct)
 
+        for value in (package_id, app_id):
+            if value:
+                check_id(value)
         async with self._connection() as conn:
             report("upload", 0)
             await conn.push(

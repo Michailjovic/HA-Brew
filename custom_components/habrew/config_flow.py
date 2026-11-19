@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -56,17 +57,21 @@ from .const import (
     CONF_DISTRIBUTOR_FILE,
     CONF_EXPIRES,
     CONF_MAC,
+    CONF_PASSPHRASE,
     CONF_PLATFORM,
     CONF_PRERELEASES,
     CONF_PRESET,
     CONF_REPO,
+    CONF_SERIAL,
     CONF_SOURCE,
+    CONF_SSH_KEY,
     CONF_WAKE_ENTITY,
     CONF_WAKE_METHOD,
     CONF_WAKE_TIMEOUT,
     DEFAULT_WAKE_TIMEOUT,
     DOMAIN,
     PLATFORM_TIZEN,
+    PLATFORM_WEBOS,
     PRESET_CUSTOM,
     SOURCE_GITHUB,
     SUBENTRY_APP,
@@ -76,6 +81,7 @@ from .const import (
     WAKE_NONE,
     WAKE_WOL,
 )
+from .drivers.base import DeviceAuthError, DeviceConnectError, DeviceError
 from .drivers.tizen import (
     CertificateError,
     SdbError,
@@ -84,13 +90,37 @@ from .drivers.tizen import (
     load_p12_pair,
     load_tizenbrew_config,
 )
+from .drivers.webos import WebosDevice, WebosDeviceInfo, fetch_key, load_key
 from .drivers.wol import normalize_mac
 from .github import GitHubClient, GitHubError, NoMatchingAsset
-from .presets import PRESETS
+from .platforms import spec_for
+from .presets import PRESETS, presets_for
 
 _LOGGER = logging.getLogger(__name__)
 
 REPO_RX = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
+async def _async_webos_pair(host: str, passphrase: str) -> tuple[str, WebosDeviceInfo]:
+    """Download the Developer Mode key, decrypt it and log in once. Raises with an error key in args[0]."""
+    try:
+        pem = await fetch_key(host)
+    except DeviceConnectError as err:
+        _LOGGER.debug("Key Server of %s: %s", host, err)
+        raise ValueError("key_server") from err
+    try:
+        load_key(pem, passphrase)
+    except DeviceAuthError as err:
+        raise ValueError("invalid_passphrase") from err
+    try:
+        info = await WebosDevice(host, pem, passphrase).get_info()
+    except DeviceAuthError as err:
+        _LOGGER.debug("Login to %s failed: %s", host, err)
+        raise ValueError("invalid_passphrase") from err
+    except (DeviceError, TimeoutError, OSError) as err:
+        _LOGGER.debug("Cannot connect to %s: %s", host, err)
+        raise ValueError("cannot_connect_webos") from err
+    return pem, info
 
 
 class HabrewConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -98,8 +128,16 @@ class HabrewConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def __init__(self) -> None:
+        self._host = ""
+        self._name = ""
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
+        if user_input is not None and user_input.get(CONF_PLATFORM) == PLATFORM_WEBOS:
+            self._host = user_input[CONF_HOST].strip()
+            self._name = (user_input.get(CONF_NAME) or "").strip()
+            return await self.async_step_webos()
         if user_input is not None:
             host = user_input[CONF_HOST].strip()
             device = TizenDevice(host)
@@ -112,7 +150,7 @@ class HabrewConfigFlow(ConfigFlow, domain=DOMAIN):
                 await self.async_set_unique_id(info.duid or host)
                 self._abort_if_unique_id_configured(updates={CONF_HOST: host})
                 return self.async_create_entry(
-                    title=user_input[CONF_NAME],
+                    title=(user_input.get(CONF_NAME) or "").strip() or info.model or "Samsung TV",
                     data={
                         CONF_HOST: host,
                         CONF_PLATFORM: PLATFORM_TIZEN,
@@ -124,16 +162,81 @@ class HabrewConfigFlow(ConfigFlow, domain=DOMAIN):
 
         schema = vol.Schema(
             {
-                vol.Required(CONF_NAME, default="Samsung TV"): str,
-                vol.Required(CONF_HOST): str,
                 vol.Required(CONF_PLATFORM, default=PLATFORM_TIZEN): SelectSelector(
-                    SelectSelectorConfig(options=[PLATFORM_TIZEN], translation_key="platform")
+                    SelectSelectorConfig(
+                        options=[PLATFORM_TIZEN, PLATFORM_WEBOS],
+                        translation_key="platform",
+                        mode=SelectSelectorMode.LIST,
+                    )
                 ),
+                vol.Optional(CONF_NAME): str,
+                vol.Required(CONF_HOST): str,
             }
         )
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(schema, user_input),
+            errors=errors,
+        )
+
+    async def async_step_webos(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """LG: the Key Server publishes the SSH key, the passphrase on screen decrypts it."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            passphrase = user_input[CONF_PASSPHRASE].strip()
+            try:
+                pem, info = await _async_webos_pair(self._host, passphrase)
+            except ValueError as err:
+                errors["base"] = str(err)
+            else:
+                await self.async_set_unique_id(info.serial or self._host)
+                self._abort_if_unique_id_configured(
+                    updates={CONF_HOST: self._host, CONF_SSH_KEY: pem, CONF_PASSPHRASE: passphrase}
+                )
+                return self.async_create_entry(
+                    title=self._name or info.model or "LG TV",
+                    data={
+                        CONF_HOST: self._host,
+                        CONF_PLATFORM: PLATFORM_WEBOS,
+                        CONF_SSH_KEY: pem,
+                        CONF_PASSPHRASE: passphrase,
+                        CONF_SERIAL: info.serial,
+                        "model": info.model,
+                        "platform_version": info.sdk_version,
+                        "firmware": info.firmware,
+                    },
+                )
+        return self.async_show_form(
+            step_id="webos",
+            data_schema=vol.Schema({vol.Required(CONF_PASSPHRASE): str}),
+            description_placeholders={"host": self._host},
+            errors=errors,
+        )
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        """The Developer Mode key changed (Dev Mode was reinstalled or turned off and on)."""
+        self._host = entry_data[CONF_HOST]
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+        if user_input is not None:
+            passphrase = user_input[CONF_PASSPHRASE].strip()
+            try:
+                pem, info = await _async_webos_pair(self._host, passphrase)
+            except ValueError as err:
+                errors["base"] = str(err)
+            else:
+                if info.serial and entry.unique_id and info.serial != entry.unique_id:
+                    return self.async_abort(reason="wrong_tv")
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={CONF_SSH_KEY: pem, CONF_PASSPHRASE: passphrase}
+                )
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema({vol.Required(CONF_PASSPHRASE): str}),
+            description_placeholders={"host": self._host, "name": entry.title},
             errors=errors,
         )
 
@@ -145,6 +248,8 @@ class HabrewConfigFlow(ConfigFlow, domain=DOMAIN):
     @classmethod
     @callback
     def async_get_supported_subentry_types(cls, config_entry: ConfigEntry) -> dict[str, type[ConfigSubentryFlow]]:
+        if not spec_for(config_entry.data).needs_certificate:
+            return {SUBENTRY_APP: AppSubentryFlow}
         return {
             SUBENTRY_CERTIFICATE: CertificateSubentryFlow,
             SUBENTRY_APP: AppSubentryFlow,
@@ -351,9 +456,11 @@ class AppSubentryFlow(ConfigSubentryFlow):
         ]
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        spec = spec_for(self._get_entry().data)
         cert_options = self._certificate_options()
-        if not cert_options:
+        if spec.needs_certificate and not cert_options:
             return self.async_abort(reason="no_certificates")
+        presets = presets_for(spec.key)
         errors: dict[str, str] = {}
         if user_input is not None:
             self._base = user_input
@@ -363,23 +470,23 @@ class AppSubentryFlow(ConfigSubentryFlow):
             if result := await self._async_validate_and_create(preset.name, preset.repo, preset.asset_pattern, errors):
                 return result
 
-        preset_options = [SelectOptionDict(value=k, label=p.name) for k, p in PRESETS.items()]
+        preset_options = [SelectOptionDict(value=k, label=p.name) for k, p in presets.items()]
         preset_options.append(SelectOptionDict(value=PRESET_CUSTOM, label="GitHub"))
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_PRESET, default=next(iter(PRESETS))): SelectSelector(
-                    SelectSelectorConfig(
-                        options=preset_options,
-                        mode=SelectSelectorMode.LIST,
-                        translation_key="preset",
-                    )
-                ),
-                vol.Required(CONF_CERTIFICATE, default=cert_options[0]["value"]): SelectSelector(
-                    SelectSelectorConfig(options=cert_options)
-                ),
-                vol.Required(CONF_PRERELEASES, default=False): BooleanSelector(),
-            }
-        )
+        fields: dict[Any, Any] = {
+            vol.Required(CONF_PRESET, default=preset_options[0]["value"]): SelectSelector(
+                SelectSelectorConfig(
+                    options=preset_options,
+                    mode=SelectSelectorMode.LIST,
+                    translation_key="preset",
+                )
+            ),
+        }
+        if spec.needs_certificate:
+            fields[vol.Required(CONF_CERTIFICATE, default=cert_options[0]["value"])] = SelectSelector(
+                SelectSelectorConfig(options=cert_options)
+            )
+        fields[vol.Required(CONF_PRERELEASES, default=False)] = BooleanSelector()
+        schema = vol.Schema(fields)
         return self.async_show_form(
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(schema, user_input),
@@ -407,7 +514,7 @@ class AppSubentryFlow(ConfigSubentryFlow):
             {
                 vol.Required(CONF_NAME): str,
                 vol.Required(CONF_REPO): str,
-                vol.Required(CONF_ASSET_PATTERN, default=r"\.wgt$"): str,
+                vol.Required(CONF_ASSET_PATTERN, default=spec_for(self._get_entry().data).default_pattern): str,
             }
         )
         return self.async_show_form(
@@ -441,7 +548,7 @@ class AppSubentryFlow(ConfigSubentryFlow):
                 CONF_PRESET: self._base.get(CONF_PRESET, PRESET_CUSTOM),
                 CONF_REPO: repo,
                 CONF_ASSET_PATTERN: pattern,
-                CONF_CERTIFICATE: self._base[CONF_CERTIFICATE],
+                CONF_CERTIFICATE: self._base.get(CONF_CERTIFICATE),
                 CONF_PRERELEASES: self._base.get(CONF_PRERELEASES, False),
             },
             unique_id=unique_id,

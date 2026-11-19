@@ -1,8 +1,9 @@
-"""App catalog based on the Apps2Samsung signed snapshot.
+"""App catalogs: the Apps2Samsung signed snapshot (Tizen) and the webOS Homebrew repository (LG).
 
-https://github.com/Apps2Samsung/tizen-community-packages/blob/main/docs/catalog.md
-The snapshot lists every installable file with download URL, SHA-256 and package ids, so the
-catalog needs no GitHub API calls. Please credit the catalog when showing it to users.
+Tizen: https://github.com/Apps2Samsung/tizen-community-packages/blob/main/docs/catalog.md
+webOS: https://repo.webosbrew.org/api/apps.json
+Both list every installable file with download URL and SHA-256, so the catalogs need no GitHub
+API calls. Please credit the catalog when showing it to users.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -18,6 +20,8 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 
 CATALOG_URL = "https://apps2samsung.com/catalog/resolved.json"
+WEBOSBREW_URL = "https://repo.webosbrew.org/api/apps.json"
+WEBOSBREW_PROVIDER = "webosbrew"
 CATALOG_TTL = 30 * 60
 COMMUNITY_PROVIDER = "tizen-community"
 
@@ -167,12 +171,58 @@ def parse_snapshot(data: dict[str, Any]) -> Catalog:
     )
 
 
-class CatalogClient:
-    """Fetches and caches the snapshot (shared by all TVs)."""
+def parse_webosbrew(data: dict[str, Any]) -> Catalog:
+    """Turn the webOS Homebrew repository listing (single page) into catalog entries."""
+    entries: dict[str, CatalogEntry] = {}
+    for package in data.get("packages", []):
+        manifest = package.get("manifest") or {}
+        app_id = package.get("id") or manifest.get("id") or ""
+        url = manifest.get("ipkUrl") or ""
+        if not app_id or not url.startswith("https://"):
+            continue
+        repo = ""
+        if m := re.match(r"https://github\.com/([^/]+/[^/#?]+)", manifest.get("sourceUrl") or ""):
+            repo = m.group(1).removesuffix(".git")
+        flags = []
+        if manifest.get("rootRequired") is True:
+            flags.append("root")
+        if package.get("pool") == "non-free":
+            flags.append("closed-source")
+        key = f"{WEBOSBREW_PROVIDER}:{app_id}"
+        entries[key] = CatalogEntry(
+            key=key,
+            provider=WEBOSBREW_PROVIDER,
+            file=url.rsplit("/", 1)[-1],
+            name=package.get("title") or manifest.get("title") or app_id,
+            description=package.get("shortDescription") or manifest.get("appDescription") or "",
+            category="native" if manifest.get("type") == "native" else "web",
+            version=str(manifest.get("version") or ""),
+            package_id=app_id,
+            app_id=app_id,
+            url=url,
+            sha256=((manifest.get("ipkHash") or {}).get("sha256") or "").lower(),
+            size=manifest.get("ipkSize") or 0,
+            icon=package.get("iconUri") or "",
+            repo=repo,
+            flags=flags,
+        )
+    return Catalog(entries=entries, categories={"web": "Web apps", "native": "Native apps"}, category_colors={})
 
-    def __init__(self, session: aiohttp.ClientSession, user_agent: str) -> None:
+
+class CatalogClient:
+    """Fetches and caches one catalog (shared by all TVs of a platform)."""
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        user_agent: str,
+        url: str = CATALOG_URL,
+        parser: Callable[[dict[str, Any]], Catalog] = parse_snapshot,
+    ) -> None:
         self._session = session
         self._user_agent = user_agent
+        self._url = url
+        self._parser = parser
         self._catalog: Catalog | None = None
         self._fetched = 0.0
         self._etag = ""
@@ -188,7 +238,7 @@ class CatalogClient:
         if self._etag and self._catalog:
             headers["If-None-Match"] = self._etag
         try:
-            async with self._session.get(CATALOG_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+            async with self._session.get(self._url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                 if resp.status == 304 and self._catalog:
                     self._fetched = time.monotonic()
                     return self._catalog
@@ -201,6 +251,6 @@ class CatalogClient:
                 _LOGGER.warning("Catalog refresh failed, using cached copy: %s", err)
                 return self._catalog
             raise CatalogError(f"Cannot load catalog: {err}") from err
-        self._catalog = parse_snapshot(data)
+        self._catalog = self._parser(data)
         self._fetched = time.monotonic()
         return self._catalog

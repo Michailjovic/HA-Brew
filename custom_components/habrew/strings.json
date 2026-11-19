@@ -3,22 +3,41 @@
     "step": {
       "user": {
         "title": "Add a TV",
-        "description": "Enable Developer Mode on the TV and set its **Host PC IP** to the IP address of this Home Assistant, then restart the TV.",
+        "description": "**Samsung:** enable Developer Mode on the TV, set its **Host PC IP** to the IP address of this Home Assistant and restart the TV.\n\n**LG:** install the **Developer Mode** app from the LG Content Store, sign in with an LG developer account and turn **Dev Mode Status** on.",
         "data": {
-          "name": "Name",
+          "name": "Name (optional)",
           "host": "TV IP address",
           "platform": "Platform"
         },
         "data_description": {
           "host": "The TV must be on and in Developer Mode."
         }
+      },
+      "webos": {
+        "title": "LG TV: Developer Mode key",
+        "description": "On the TV open the **Developer Mode** app, switch **Key Server** on and type the **passphrase** shown on the screen (6 characters). Home Assistant downloads the key from {host} once; afterwards you can switch Key Server off.",
+        "data": {
+          "passphrase": "Passphrase"
+        }
+      },
+      "reauth_confirm": {
+        "title": "LG TV: new Developer Mode key",
+        "description": "The TV {name} no longer accepts the stored key (Developer Mode was reinstalled or switched off and on). Open the **Developer Mode** app, switch **Key Server** on and type the new passphrase.",
+        "data": {
+          "passphrase": "Passphrase"
+        }
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to the TV. Check that it is on, Developer Mode is enabled and Host PC IP is set to this Home Assistant's IP address."
+      "cannot_connect": "Cannot connect to the TV. Check that it is on, Developer Mode is enabled and Host PC IP is set to this Home Assistant's IP address.",
+      "key_server": "The Key Server on the TV is not reachable. Open the Developer Mode app on the TV and switch Key Server on.",
+      "invalid_passphrase": "Wrong passphrase.",
+      "cannot_connect_webos": "The TV does not accept SSH connections on port 9922. Check that Dev Mode Status is on."
     },
     "abort": {
-      "already_configured": "This TV is already configured."
+      "already_configured": "This TV is already configured.",
+      "reauth_successful": "The key was updated.",
+      "wrong_tv": "This is a different TV (serial number does not match)."
     }
   },
   "config_subentries": {
@@ -69,7 +88,7 @@
       "step": {
         "user": {
           "title": "Add app",
-          "description": "Choose a known app or a custom GitHub repository and the certificate the app was installed with.",
+          "description": "Choose a known app or a custom GitHub repository. Samsung: also the certificate the app was installed with.",
           "data": {
             "preset": "App",
             "certificate": "Signing certificate",
@@ -84,7 +103,7 @@
             "asset_pattern": "Release asset (regular expression)"
           },
           "data_description": {
-            "asset_pattern": "Which file of a release to install, e.g. `\\.wgt$`."
+            "asset_pattern": "Which file of a release to install, e.g. `\\.wgt$` (Samsung) or `\\.ipk$` (LG)."
           }
         }
       },
@@ -104,7 +123,8 @@
   "selector": {
     "platform": {
       "options": {
-        "tizen": "Samsung (Tizen)"
+        "tizen": "Samsung (Tizen)",
+        "webos": "LG (webOS)"
       }
     },
     "cert_type": {
@@ -116,14 +136,16 @@
     "preset": {
       "options": {
         "nuvio": "Nuvio TV",
-        "custom": "Custom GitHub repository"
+        "custom": "Custom GitHub repository",
+        "nuvio_webos": "Nuvio TV",
+        "youtube_webos": "YouTube AdFree"
       }
     },
     "wake_method": {
       "options": {
         "none": "Do not wake",
         "wol": "Wake-on-LAN",
-        "entity": "Turn on an entity (e.g. samsungtv_smart)"
+        "entity": "Turn on an entity (e.g. samsungtv_smart, webostv)"
       }
     }
   },
@@ -169,6 +191,12 @@
     },
     "launch_failed": {
       "message": "The TV could not start the app: {error}"
+    },
+    "auth_failed": {
+      "message": "The TV rejected the Developer Mode key. Open the integration and enter the new passphrase ({error})."
+    },
+    "devmode_failed": {
+      "message": "The Developer Mode session could not be extended: {error}"
     }
   },
   "options": {
@@ -184,7 +212,7 @@
           "wake_timeout": "Wait for the TV (seconds)"
         },
         "data_description": {
-          "wake_entity": "For example the media player of the Samsung TV Smart (samsungtv_smart) integration.",
+          "wake_entity": "For example the media player of Samsung TV Smart (samsungtv_smart) or LG webOS TV (webostv).",
           "broadcast_address": "Leave empty for 255.255.255.255."
         }
       }
@@ -192,6 +220,24 @@
     "error": {
       "invalid_mac": "Invalid MAC address.",
       "entity_required": "Select an entity."
+    }
+  },
+  "issues": {
+    "devmode_expiring": {
+      "title": "Developer Mode on {tv} is running out",
+      "description": "About {hours} hours are left in the LG Developer Mode session. When it runs out, the TV removes every app installed in Developer Mode (Homebrew Channel, Nuvio, …). HA-Brew extends the session automatically once a day; this did not work ({error}).\n\nTurn the TV on, open the **Developer Mode** app and press **Extend**, or press **Extend Developer Mode** on the TV's device page. If the app shows that Dev Mode is off, sign in again and switch it on."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "devmode_remaining": {
+        "name": "Developer Mode remaining"
+      }
+    },
+    "button": {
+      "devmode_extend": {
+        "name": "Extend Developer Mode"
+      }
     }
   }
 }

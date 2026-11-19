@@ -4,21 +4,13 @@ from __future__ import annotations
 
 import io
 import zipfile
-from dataclasses import dataclass
 from xml.etree import ElementTree as ET
+
+from ..base import PackageMetadata
 
 TIZEN_NS = "{http://tizen.org/ns/widgets}"
 
-
-@dataclass(frozen=True)
-class WgtMetadata:
-    """Identifiers and version declared in a widget's config.xml."""
-
-    version: str
-    package_id: str
-    app_id: str
-    required_version: str
-    name: str
+WgtMetadata = PackageMetadata  # kept for imports from 0.2.x
 
 
 def read_wgt_metadata(wgt: bytes) -> WgtMetadata:

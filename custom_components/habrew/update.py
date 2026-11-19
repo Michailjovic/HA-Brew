@@ -7,7 +7,6 @@ from typing import Any
 from homeassistant.components.update import UpdateEntity, UpdateEntityFeature
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -18,11 +17,11 @@ from .const import (
     CONF_EXPIRES,
     CONF_REPO,
     CONF_SOURCE,
-    DOMAIN,
     SOURCE_GITHUB,
     SUBENTRY_APP,
 )
 from .coordinator import HabrewConfigEntry, HabrewCoordinator
+from .platforms import tv_device_info
 
 PARALLEL_UPDATES = 1
 
@@ -40,7 +39,7 @@ async def async_setup_entry(
 
 
 class HabrewAppUpdate(CoordinatorEntity[HabrewCoordinator], UpdateEntity):
-    """Newest GitHub release of an app vs. the version installed on the TV."""
+    """Newest release of an app vs. the version installed on the TV."""
 
     _attr_has_entity_name = True
     _attr_supported_features = (
@@ -53,13 +52,7 @@ class HabrewAppUpdate(CoordinatorEntity[HabrewCoordinator], UpdateEntity):
         self._subentry = subentry
         self._attr_unique_id = f"{entry.entry_id}_{subentry.subentry_id}"
         self._attr_name = subentry.title
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
-            name=entry.title,
-            manufacturer="Samsung",
-            model=entry.data.get("model") or None,
-            sw_version=f"Tizen {entry.data['platform_version']}" if entry.data.get("platform_version") else None,
-        )
+        self._attr_device_info = tv_device_info(entry)
 
     @property
     def _release(self):

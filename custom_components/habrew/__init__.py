@@ -11,6 +11,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers import translation
 from homeassistant.helpers.typing import ConfigType
 
@@ -26,8 +27,11 @@ from .const import (
     VERSION,
 )
 from .coordinator import HabrewConfigEntry, HabrewCoordinator
+from .platforms import tv_device_info
 
-PLATFORMS: list[Platform] = [Platform.UPDATE]
+PLATFORMS: list[Platform] = [Platform.UPDATE, Platform.SENSOR, Platform.BUTTON]
+# unique_id suffixes of TV-level entities (everything else is an app subentry id)
+TV_ENTITY_SUFFIXES = {"devmode_remaining", "devmode_extend"}
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
@@ -76,20 +80,13 @@ def _async_cleanup_registries(hass: HomeAssistant, entry: HabrewConfigEntry) -> 
     """
     dev_reg = dr.async_get(hass)
     ent_reg = er.async_get(hass)
-    app_ids = {sid for sid, s in entry.subentries.items() if s.subentry_type == SUBENTRY_APP}
+    app_ids = {sid for sid, s in entry.subentries.items() if s.subentry_type == SUBENTRY_APP} | TV_ENTITY_SUFFIXES
     for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
         if ent.unique_id.removeprefix(f"{entry.entry_id}_") not in app_ids:
             ent_reg.async_remove(ent.entity_id)
         elif ent.config_subentry_id is not None:
             ent_reg.async_update_entity(ent.entity_id, config_subentry_id=None)
-    device = dev_reg.async_get_or_create(
-        config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, entry.unique_id or entry.entry_id)},
-        name=entry.title,
-        manufacturer="Samsung",
-        model=entry.data.get("model") or None,
-        sw_version=f"Tizen {entry.data['platform_version']}" if entry.data.get("platform_version") else None,
-    )
+    device = dev_reg.async_get_or_create(config_entry_id=entry.entry_id, **tv_device_info(entry))
     if hasattr(device, "config_subentry_id"):
         # HA 2026.x: a device has a single config entry / subentry
         if device.config_subentry_id is not None:
@@ -107,9 +104,12 @@ async def _async_reload(hass: HomeAssistant, entry: HabrewConfigEntry) -> None:
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: HabrewConfigEntry) -> bool:
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+        await entry.runtime_data.async_flush()
+    return unloaded
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: HabrewConfigEntry) -> None:
-    """Delete stored certificates and cached packages."""
+    """Delete stored certificates, cached packages and repair issues."""
+    ir.async_delete_issue(hass, DOMAIN, f"devmode_{entry.entry_id}")
     await hass.async_add_executor_job(certificates.remove_entry_files, hass, entry.entry_id)

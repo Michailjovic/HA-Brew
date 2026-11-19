@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-11-19
+
+### Added
+- **LG webOS TVs** (Developer Mode, no root needed).
+  - Setup: choose *LG*, then type the passphrase the Developer Mode app shows while **Key Server** is on. Home Assistant downloads the SSH key once and keeps it.
+  - Packages (`.ipk`) are streamed to the TV over SSH (port 9922) and installed with the TV's app installer. No signing and no certificates.
+  - **Developer Mode session**: HA-Brew restarts the 1000-hour session at LG once a day (also while the TV is off). Sensor *Developer Mode remaining* (hours), button *Extend Developer Mode*, and a repair issue when the session cannot be extended or less than 7 days are left.
+  - When Developer Mode was switched off and on (new key), Home Assistant asks for the new passphrase.
+  - Catalog: the [webOS Homebrew repository](https://repo.webosbrew.org), checked against its SHA-256.
+  - Presets: Nuvio TV (`NuvioTV-webOS-*.ipk`) and YouTube AdFree.
+- Panel:
+  - LG TVs show the Developer Mode session with an **Extend** button.
+  - The catalog tab switches between Samsung and LG when both are set up.
+  - Apps that match a preset (Nuvio TV, YouTube AdFree) can be taken over from GitHub in one click.
+- WebSocket command `habrew/devmode/extend`; `habrew/catalog` takes `platform`.
+
+### Changed
+- The TV name is optional when adding a TV (defaults to the model).
+- App and package ids are checked before they are used in commands on the TV.
+- Pending state is saved when the integration reloads.
+
+### Dependencies
+- `asyncssh` (pure Python, installed automatically; only used for LG TVs).
+
 ## [0.2.3] - 2026-11-16
 
 ### Added
