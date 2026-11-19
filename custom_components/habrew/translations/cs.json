@@ -73,7 +73,7 @@
         },
         "samsung": {
           "title": "Nový certifikát (účet Samsung)",
-          "description": "Certifikát bude vydaný pro tyto televize: **{duids}**. Na další stránce se přihlásíš účtem Samsung; budeš potřebovat počítač ve stejné síti. Stačí bezplatný účet: [account.samsung.com](https://account.samsung.com).",
+          "description": "Certifikát bude vydaný pro tyto televize: **{duids}**. Na další stránce se přihlásíš účtem Samsung; budeš potřebovat počítač ve stejné síti. Stačí bezplatný účet: {account_url}.",
           "data": {
             "author_cn": "Jméno autora",
             "privilege": "Úroveň oprávnění",

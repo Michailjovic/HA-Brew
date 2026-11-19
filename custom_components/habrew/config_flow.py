@@ -418,7 +418,7 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
                 ),
                 user_input,
             ),
-            description_placeholders={"duids": ", ".join(known) or "-"},
+            description_placeholders={"duids": ", ".join(known) or "-", "account_url": "https://account.samsung.com"},
             errors=errors,
         )
 

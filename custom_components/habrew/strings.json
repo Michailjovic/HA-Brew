@@ -73,7 +73,7 @@
         },
         "samsung": {
           "title": "New certificate (Samsung account)",
-          "description": "The certificate will be issued for these TVs: **{duids}**. On the next page you sign in with your Samsung account; you need a computer in the same network. A free account is enough: [account.samsung.com](https://account.samsung.com).",
+          "description": "The certificate will be issued for these TVs: **{duids}**. On the next page you sign in with your Samsung account; you need a computer in the same network. A free account is enough: {account_url}.",
           "data": {
             "author_cn": "Author name",
             "privilege": "Privilege level",
