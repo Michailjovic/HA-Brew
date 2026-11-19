@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-11-20
+
+### Added
+- Catalog filter by root: all apps, only apps that work without root, or only root apps (Samsung and LG).
+
+### Fixed
+- hassfest: translation keys of the certificate privilege selector must be lowercase (`public`, `partner`); Samsung still receives `Public` / `Partner`.
+
 ## [0.4.0] - 2026-11-20
 
 ### Added

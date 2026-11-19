@@ -176,8 +176,8 @@
     },
     "privilege": {
       "options": {
-        "Public": "Public",
-        "Partner": "Partner"
+        "public": "Public",
+        "partner": "Partner"
       }
     }
   },

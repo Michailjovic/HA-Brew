@@ -176,7 +176,7 @@ async def _start(hass: HomeAssistant, entry, extra: str = "") -> dict:
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], {"cert_type": "samsung"})
     assert result["step_id"] == "samsung"
     assert DUID in result["description_placeholders"]["duids"]
-    data = {"author_cn": "Michal", "privilege": "Public"}
+    data = {"author_cn": "Michal", "privilege": "public"}
     if extra:
         data["extra_duids"] = extra
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], data)
@@ -284,7 +284,7 @@ async def test_invalid_extra_duid(hass: HomeAssistant, tv_entry) -> None:
     )
     result = await hass.config_entries.subentries.async_configure(result["flow_id"], {"cert_type": "samsung"})
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"author_cn": "x", "privilege": "Public", "extra_duids": "bad duid!"}
+        result["flow_id"], {"author_cn": "x", "privilege": "public", "extra_duids": "bad duid!"}
     )
     assert result["errors"] == {"extra_duids": "invalid_duid"}
 

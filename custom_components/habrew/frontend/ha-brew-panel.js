@@ -101,6 +101,9 @@ const STRINGS = {
     takeover_hint_webos: "HA-Brew will update this app from the selected source.",
     no_certs_needed: "LG TVs do not need signing certificates.",
     platform_tizen: "Samsung",
+    root_any: "Root: all apps",
+    root_no: "Without root",
+    root_only: "Root only",
     platform_webos: "LG",
     stop_managing: "Only stop managing",
     uninstall_tv: "Uninstall from TV",
@@ -204,6 +207,9 @@ const STRINGS = {
     takeover_hint_webos: "HA-Brew bude aplikaci aktualizovat z vybraného zdroje.",
     no_certs_needed: "Televize LG podpisové certifikáty nepotřebují.",
     platform_tizen: "Samsung",
+    root_any: "Root: všechny aplikace",
+    root_no: "Bez rootu",
+    root_only: "Jen s rootem",
     platform_webos: "LG",
     stop_managing: "Jen přestat spravovat",
     uninstall_tv: "Odinstalovat z TV",
@@ -230,7 +236,7 @@ class HaBrewPanel extends HTMLElement {
     this._form = null; // {kind, entry, ...}
     this._confirm = null;
     this._reinstall = null;
-    this._filter = { q: "", cat: "", adult: false };
+    this._filter = { q: "", cat: "", adult: false, root: "" };
     this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
     this.shadowRoot.addEventListener("input", (ev) => this._onInput(ev));
     this.shadowRoot.addEventListener("change", (ev) => this._onInput(ev));
@@ -796,6 +802,9 @@ class HaBrewPanel extends HTMLElement {
         <select data-filter="cat"><option value="">${this.t("all_categories")}</option>
           ${Object.entries(cats).map(([k, v]) => `<option value="${esc(k)}" ${this._filter.cat === k ? "selected" : ""}>${esc(v)}</option>`).join("")}
         </select>
+        <select data-filter="root">
+          ${["", "no", "only"].map((v) => `<option value="${v}" ${this._filter.root === v ? "selected" : ""}>${this.t(`root_${v || "any"}`)}</option>`).join("")}
+        </select>
         <label class="check"><input type="checkbox" data-filter="adult" ${this._filter.adult ? "checked" : ""}> ${this.t("show_adult")}</label>
         <button class="icon-btn" title="${this.t("refresh")}" data-action="refresh-catalog" ${this._busy.catalog ? "disabled" : ""}><ha-icon icon="mdi:refresh"></ha-icon></button>
       </div>
@@ -837,7 +846,13 @@ class HaBrewPanel extends HTMLElement {
     const q = this._filter.q.trim().toLowerCase();
     const tvs = (this._overview?.tvs || []).filter((tv) => tv.loaded && tv.platform === this._catalog.platform);
     const groups = this._catalogGroups()
-      .map((g) => ({ ...g, entries: g.entries.filter((e) => this._filter.adult || !e.adult) }))
+      .map((g) => ({
+        ...g,
+        entries: g.entries.filter((e) => {
+          const root = (e.flags || []).includes("root");
+          return (this._filter.adult || !e.adult) && (!this._filter.root || (this._filter.root === "only") === root);
+        }),
+      }))
       .filter((g) => g.entries.length && (!this._filter.cat || g.entries.some((e) => e.category === this._filter.cat)))
       .filter((g) => !q || g.entries.some((e) => `${e.name} ${e.variant} ${e.description} ${e.repo}`.toLowerCase().includes(q)))
       .sort((a, b) => a.name.localeCompare(b.name));

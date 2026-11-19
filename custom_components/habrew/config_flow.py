@@ -396,7 +396,7 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
             else:
                 self._samsung = {
                     CONF_AUTHOR_CN: (user_input.get(CONF_AUTHOR_CN) or "").strip() or "HA-Brew",
-                    CONF_PRIVILEGE: user_input[CONF_PRIVILEGE],
+                    CONF_PRIVILEGE: user_input[CONF_PRIVILEGE].capitalize(),  # Samsung expects Public / Partner
                     CONF_DUIDS: duids,
                 }
                 return await self.async_step_samsung_login()
@@ -406,9 +406,9 @@ class CertificateSubentryFlow(ConfigSubentryFlow):
                 vol.Schema(
                     {
                         vol.Optional(CONF_AUTHOR_CN, default="HA-Brew"): str,
-                        vol.Required(CONF_PRIVILEGE, default="Public"): SelectSelector(
+                        vol.Required(CONF_PRIVILEGE, default="public"): SelectSelector(
                             SelectSelectorConfig(
-                                options=list(samsung_cert.PRIVILEGES),
+                                options=[p.lower() for p in samsung_cert.PRIVILEGES],
                                 translation_key="privilege",
                                 mode=SelectSelectorMode.LIST,
                             )
