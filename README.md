@@ -17,7 +17,9 @@ On LG TVs HA-Brew also keeps the **Developer Mode session** alive, so your homeb
 ### Samsung (Tizen)
 
 1. Your TV is in **Developer Mode**, and its *Host PC IP* points to your Home Assistant.
-2. You upload the certificate the app was originally installed with: a TizenBrew Installer config, or an Apps2Samsung / Tizen Studio `.p12` pair.
+2. You add a signing certificate:
+   - **create a new one** with your free Samsung account: the dialog gives you a one-line command (PowerShell on Windows, Terminal on macOS/Linux) that opens the Samsung sign-in; no app to install, or
+   - **upload the one the app was originally installed with**: a TizenBrew Installer config, or an Apps2Samsung / Tizen Studio `.p12` pair.
 3. HA-Brew checks GitHub for new releases. When an update is installed, it:
    - re-signs the `.wgt` package with your certificate,
    - pushes it to the TV over `sdb` (TCP 26101),
@@ -40,7 +42,7 @@ No Tizen Studio, no webOS CLI, no PC and no extra add-on are needed. Everything 
   2. Type `12345` with the remote (or the SmartThings app's virtual remote).
   3. Switch Developer Mode on and set **Host PC IP** to your Home Assistant's IP.
   4. Restart the TV: hold the power button until the logo appears.
-- The signing certificate the app was installed with (see [Certificates](#certificates)).
+- A free [Samsung account](https://account.samsung.com) to create a signing certificate, or the certificate your apps were already installed with (see [Certificates](#certificates-samsung)).
 
 > Setting the Host PC IP to Home Assistant means other tools on your PC (Apps2Samsung, TizenBrew Installer) cannot reach the TV until you switch it back.
 
@@ -71,9 +73,16 @@ You can still add apps from any GitHub repository, either in the panel (**Add fr
 
 After adding the TV, use the buttons on the integration page:
 
-1. **Add certificate**, choosing one of the two formats:
+1. **Add certificate**, choosing one of three options:
+   - *Create a new certificate (Samsung account)*, recommended for new apps:
+     1. Enter an author name (anything) and keep the privilege level **Public**.
+     2. The dialog shows a command. On a computer in the same network as Home Assistant run it: **Windows**: press **Win + R**, paste, **Enter**; **macOS / Linux**: paste it into **Terminal**.
+     3. Sign in to your Samsung account in the browser that opens, then close the page.
+     4. Home Assistant continues by itself and creates the certificate for all your Samsung TVs in HA-Brew.
    - *TizenBrew Installer*: upload `tizenbrewInstallerConfig.json`. It lives in `%USERPROFILE%\share\` on the computer where TizenBrew Installer ran.
    - *author.p12 + distributor.p12*: Apps2Samsung keeps them in `%APPDATA%\Apps2Samsung\Certificate\<profile>\`, with the password in `password.txt`.
+
+   Apps already on the TV can only be updated with the certificate they were installed with. Moving them to a new certificate means one uninstall and install, which deletes their data; to keep it, upload the old certificate instead.
 2. **Add app**: pick a preset (Nuvio TV) or any GitHub repository plus a regular expression for the release file, for example `\.wgt$`. Then select the certificate.
 
 An `update.<tv>_<app>` entity appears. Press **Install** to update.
@@ -103,7 +112,7 @@ HA-Brew then waits until the TV answers (60 s by default) and sends the wake-up 
 
 A Tizen app can only be updated with the **same author certificate** it was installed with.
 
-- **Create one with HA-Brew** (*Add certificate → Create a new certificate*): sign in with a free Samsung account; Home Assistant creates the keys, has Samsung issue an author and a distributor certificate for all your Samsung TVs and stores them. Samsung only sends the sign-in result to `localhost:4794` on the computer with the browser, so the dialog gives you a one-line command (PowerShell or `curl | python3`) that opens the sign-in and passes the result to Home Assistant. Nothing is installed.
+- **Create one with HA-Brew** (*Add certificate → Create a new certificate*): sign in with a free Samsung account; Home Assistant creates the keys, has Samsung issue an author and a distributor certificate for all your Samsung TVs and stores them. Samsung only sends the sign-in result to `localhost:4794` on the computer with the browser, so the dialog gives you a one-line command (PowerShell on Windows, `curl | python3` on macOS/Linux) that opens the sign-in and passes the result to Home Assistant. The command is a small script served by your own Home Assistant, valid for 15 minutes; nothing is installed and the Samsung token goes only to Home Assistant.
 - **Upload an existing one**: `tizenbrewInstallerConfig.json` from TizenBrew Installer, or `author.p12` + `distributor.p12` from Apps2Samsung / Tizen Studio.
 
 Certificates are stored in Home Assistant's private `.storage` folder, never in `/config/www`. Samsung's public CA certificates are bundled (`drivers/tizen/ca/`). See the [installation guide](docs/installation.md#23-add-the-signing-certificate) for details.
