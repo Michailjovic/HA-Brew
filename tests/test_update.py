@@ -169,8 +169,8 @@ async def test_migrates_device_from_subentry(hass: HomeAssistant, sdbd, tizenbre
         await hass.async_block_till_done()
     [device] = dr.async_entries_for_config_entry(dev_reg, entry.entry_id)
     assert device.config_subentry_id is None
-    entities = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
-    assert [e.unique_id for e in entities] == [f"{entry.entry_id}_app1"]
+    entities = [e for e in er.async_entries_for_config_entry(ent_reg, entry.entry_id) if e.domain == "update"]
+    assert [e.unique_id for e in entities] == [f"{entry.entry_id}_app1"]  # "_gone" removed
     assert entities[0].config_subentry_id is None and entities[0].device_id == device.id
     assert "assigns an existing device" not in caplog.text
 
@@ -249,3 +249,77 @@ async def test_diagnostics(hass: HomeAssistant, setup, sdbd) -> None:
     assert diag["live"]["capability"]["platform_version"] == "9.0"
     assert diag["live"]["app_count"] == 1 and diag["live"]["vd_applist_sample"]
     assert diag["certificates"]["cert1"]["cert_id"] == "**REDACTED**"
+
+
+async def test_launch_button(hass: HomeAssistant, setup, sdbd) -> None:
+    state = hass.states.get("button.m70_launch_nuvio_tv")
+    assert state is not None, [e for e in hass.states.async_entity_ids() if e.startswith("button.")]
+    await hass.services.async_call("button", "press", {"entity_id": "button.m70_launch_nuvio_tv"}, blocking=True)
+    assert sdbd.launched == ["NuvioTV001.NuvioTV"]
+
+
+async def test_active_app_sensor(hass: HomeAssistant, setup) -> None:
+    from datetime import timedelta
+
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.common import async_fire_time_changed
+
+    from custom_components.habrew.drivers.base import DeviceConnectError
+    from custom_components.habrew.drivers.tizen.rest import AppStatus
+
+    entity = "sensor.m70_active_app"
+    state = hass.states.get(entity)
+    assert state is not None
+    assert state.state == "off"  # nothing answers on 127.0.0.1:8001
+    assert "Nuvio TV" in state.attributes["options"]
+
+    async def visible(self, app_id):
+        assert app_id == "NuvioTV001.NuvioTV"
+        return AppStatus(app_id, True, True)
+
+    with patch("custom_components.habrew.active_app.TizenRest.app_status", visible):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=20))
+        await hass.async_block_till_done()
+    state = hass.states.get(entity)
+    assert state.state == "Nuvio TV"
+    assert state.attributes["running"] == ["Nuvio TV"]
+    assert state.attributes["app_id"] == "NuvioTV001.NuvioTV"
+
+    async def background(self, app_id):
+        return AppStatus(app_id, True, False)
+
+    with patch("custom_components.habrew.active_app.TizenRest.app_status", background):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=40))
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "other"
+
+    async def offline(self, app_id):
+        raise DeviceConnectError("refused")
+
+    with patch("custom_components.habrew.active_app.TizenRest.app_status", offline):
+        async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=60))
+        await hass.async_block_till_done()
+    assert hass.states.get(entity).state == "off"
+
+
+async def test_rest_client(hass: HomeAssistant, aioclient_mock) -> None:
+    import aiohttp
+    from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+    from custom_components.habrew.drivers.base import DeviceConnectError
+    from custom_components.habrew.drivers.tizen.rest import TizenRest
+
+    aioclient_mock.get("http://tv:8001/api/v2/applications/a.b", exc=aiohttp.ClientError())
+    aioclient_mock.get("https://tv:8002/api/v2/applications/a.b", text='{"id":"a.b","running":true,"visible":false}')
+    aioclient_mock.get("https://tv:8002/api/v2/applications/c.d", status=404)
+    rest = TizenRest(async_get_clientsession(hass), "tv")
+    status = await rest.app_status("a.b")
+    assert status is not None and status.running and not status.visible
+    assert await rest.app_status("c.d") is None  # remembered port 8002, app unknown
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get("https://tv:8002/api/v2/applications/a.b", exc=TimeoutError())
+    with pytest.raises(DeviceConnectError):
+        await rest.app_status("a.b")
+    with pytest.raises(ValueError):
+        await rest.app_status("bad id;")

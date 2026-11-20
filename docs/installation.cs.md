@@ -169,6 +169,8 @@ LG ukončí relaci Developer Mode po 1000 hodinách a televize pak **smaže vše
 - Každá aplikace má entitu `update.<televize>_<aplikace>`. Nové verze se objeví v **Nastavení → Aktualizace** spolu s ostatními aktualizacemi Home Assistantu. **Instalovat** aplikaci aktualizuje.
 - Panel HA-Brew ukazuje všechny aplikace s nainstalovanou a dostupnou verzí a umí je instalovat, spouštět (▶) a odebírat.
 - Při odebrání aplikace (🗑) si vyberete **Jen přestat spravovat** (aplikace v televizi zůstane) nebo **Odinstalovat z TV**.
+- Každá aplikace má tlačítko `button.<televize>_launch_<aplikace>` (v češtině „Spustit …“), které ji v televizi spustí. Hodí se do automatizací, třeba „po zapnutí televize spustit launcher“. Když je nastavené probouzení, televizi nejdřív zapne.
+- Televize Samsung mají senzor `sensor.<televize>_active_app` („Aktivní aplikace“): název aplikace z HA-Brew, která je na obrazovce, **Jiná aplikace** (Samsung Home, Netflix, HDMI …) nebo **Vypnuto**, když televize neodpovídá. Atribut `running` vypisuje aplikace z HA-Brew, které běží na pozadí. U LG ukazuje aktuální aplikaci už vestavěná integrace LG webOS (zdroj přehrávače).
 
 ### Zapnutí televize kvůli aktualizaci
 

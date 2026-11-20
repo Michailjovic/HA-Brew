@@ -94,7 +94,7 @@ Samsung TVs only run signed apps. HA-Brew creates the certificate for you throug
 
 **Back in Home Assistant:**
 
-7. The window from step 4 continues on its own and after a few seconds shows **Certificate created**. Done.
+7. The window from step 4 continues on its own and after a few seconds closes with a success message. The certificate now appears under the TV on the integration page and in the panel under **Certificates**.
 
 If you take longer than 15 minutes, the window times out. Start again at step 1 and you get a new command.
 
@@ -140,7 +140,12 @@ Paste the path into the address bar of Windows Explorer to open the folder.
 
 **From any GitHub repository:** in the panel **TVs → Add from GitHub**, enter the repository (e.g. `NuvioMedia/NuvioTVSmart`) and the release file pattern (`\.wgt$`).
 
-Each app now has an entity `update.<tv>_<app>`. When a new version is released, it shows up under **Settings → Updates**.
+Each app now has:
+
+- `update.<tv>_<app>`: when a new version is released, it shows up under **Settings → Updates**,
+- `button.<tv>_launch_<app>`: starts the app on the TV (wakes the TV first if you set that up, see [Waking up the TV](#waking-up-the-tv)).
+
+Samsung TVs also get `sensor.<tv>_active_app`: the name of the HA-Brew app that is on screen, **Other app** when something else is (Samsung Home, Netflix, HDMI …), or **Off** when the TV does not answer. The attribute `running` lists HA-Brew apps running in the background. Use it in automations, e.g. *when Nuvio is on screen, dim the lights*. (LG: the built-in LG webOS integration already shows the current app as the media player's source.)
 
 ---
 

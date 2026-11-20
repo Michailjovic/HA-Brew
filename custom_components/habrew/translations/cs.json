@@ -270,11 +270,29 @@
     "sensor": {
       "devmode_remaining": {
         "name": "Zbývá Developer Mode"
+      },
+      "active_app": {
+        "name": "Aktivní aplikace",
+        "state": {
+          "off": "Vypnuto",
+          "other": "Jiná aplikace"
+        },
+        "state_attributes": {
+          "running": {
+            "name": "Spuštěné"
+          },
+          "app_id": {
+            "name": "App ID"
+          }
+        }
       }
     },
     "button": {
       "devmode_extend": {
         "name": "Prodloužit Developer Mode"
+      },
+      "launch": {
+        "name": "Spustit {app}"
       }
     }
   }

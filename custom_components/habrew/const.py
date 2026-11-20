@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "habrew"
-VERSION: Final = "0.4.2"
+VERSION: Final = "0.5.0"
 USER_AGENT: Final = f"HA-Brew/{VERSION}"
 
 PLATFORM_TIZEN: Final = "tizen"

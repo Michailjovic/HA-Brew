@@ -169,6 +169,8 @@ LG ends the Developer Mode session after 1000 hours, and the TV then **removes e
 - Each app has an entity `update.<tv>_<app>`. New versions show up under **Settings → Updates** together with your other Home Assistant updates. **Install** updates the app.
 - The HA-Brew panel shows all apps with the installed and the available version, and lets you install, launch (▶) and remove them.
 - Removing an app (🗑) offers **Only stop managing** (the app stays on the TV) or **Uninstall from TV**.
+- Each app has a button `button.<tv>_launch_<app>` that starts it on the TV, handy in automations (e.g. "start the launcher when the TV turns on"). It wakes the TV first if a wake-up method is set.
+- Samsung TVs have `sensor.<tv>_active_app`: the name of the HA-Brew app on screen, **Other app** (Samsung Home, Netflix, HDMI …) or **Off** when the TV does not answer. The attribute `running` lists HA-Brew apps running in the background. On LG the built-in LG webOS integration already shows the current app (media player source).
 
 ### Turning the TV on for updates
 

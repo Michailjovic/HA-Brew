@@ -180,6 +180,7 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         self.tv_lock = asyncio.Lock()
         self.progress: dict[str, int] = {}  # subentry id -> percent while installing
         self.data = HabrewData()
+        self.active_apps: Any = None  # ActiveAppCoordinator (Samsung only), set in async_setup_entry
 
     # ------------------------------------------------------------------ helpers
 
@@ -204,6 +205,14 @@ class HabrewCoordinator(DataUpdateCoordinator[HabrewData]):
         return self.data.apps.get(release.package_id) or next(
             (a for a in self.data.apps.values() if a.app_id == release.app_id), None
         )
+
+    def app_id(self, subentry_id: str) -> str | None:
+        """Tizen/webOS application id of an app subentry (installed copy first, then the release)."""
+        app = self.installed_app(subentry_id)
+        if app is not None and app.app_id:
+            return app.app_id
+        release = self.data.releases.get(subentry_id)
+        return release.app_id if release and release.app_id else None
 
     def latest_version(self, subentry_id: str) -> str | None:
         """Version to offer. A catalog may describe a release with another version string than the

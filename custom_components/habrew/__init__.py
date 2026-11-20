@@ -16,6 +16,7 @@ from homeassistant.helpers import translation
 from homeassistant.helpers.typing import ConfigType
 
 from . import certificates, samsung_login, websocket_api
+from .active_app import ActiveAppCoordinator
 from .const import (
     CONF_CERT_ID,
     DOMAIN,
@@ -31,7 +32,8 @@ from .platforms import tv_device_info
 
 PLATFORMS: list[Platform] = [Platform.UPDATE, Platform.SENSOR, Platform.BUTTON]
 # unique_id suffixes of TV-level entities (everything else is an app subentry id)
-TV_ENTITY_SUFFIXES = {"devmode_remaining", "devmode_extend"}
+TV_ENTITY_SUFFIXES = {"devmode_remaining", "devmode_extend", "active_app"}
+LAUNCH_SUFFIX = "_launch"
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 
@@ -67,6 +69,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: HabrewConfigEntry) -> bo
     await coordinator.async_load()
     entry.runtime_data = coordinator
     await coordinator.async_config_entry_first_refresh()
+    if not coordinator.is_webos:
+        coordinator.active_apps = ActiveAppCoordinator(hass, coordinator)
+        await coordinator.active_apps.async_refresh()
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_reload))
@@ -83,7 +88,7 @@ def _async_cleanup_registries(hass: HomeAssistant, entry: HabrewConfigEntry) -> 
     ent_reg = er.async_get(hass)
     app_ids = {sid for sid, s in entry.subentries.items() if s.subentry_type == SUBENTRY_APP} | TV_ENTITY_SUFFIXES
     for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
-        if ent.unique_id.removeprefix(f"{entry.entry_id}_") not in app_ids:
+        if ent.unique_id.removeprefix(f"{entry.entry_id}_").removesuffix(LAUNCH_SUFFIX) not in app_ids:
             ent_reg.async_remove(ent.entity_id)
         elif ent.config_subentry_id is not None:
             ent_reg.async_update_entity(ent.entity_id, config_subentry_id=None)

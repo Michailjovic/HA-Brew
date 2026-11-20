@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-11-20
+
+### Added
+- Launch button per app (`button.<tv>_launch_<app>`), usable in automations; wakes the TV first if configured.
+- Samsung: `sensor.<tv>_active_app` shows which HA-Brew app is on screen (or *Other app* / *Off*), with the running apps as an attribute. Polled every 15 s through the TV's local REST API (port 8001/8002), no pairing needed.
+
 ## [0.4.2] - 2026-11-20
 
 ### Fixed

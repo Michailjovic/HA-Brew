@@ -1,4 +1,4 @@
-"""LG webOS: hours left in the Developer Mode session."""
+"""Sensors: LG Developer Mode hours left, Samsung active app."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .active_app import ActiveAppCoordinator
 from .coordinator import HabrewConfigEntry, HabrewCoordinator
 from .platforms import tv_device_info
 
@@ -22,6 +23,8 @@ async def async_setup_entry(
     coordinator = entry.runtime_data
     if coordinator.is_webos:
         async_add_entities([DevModeRemainingSensor(coordinator)])
+    elif coordinator.active_apps is not None:
+        async_add_entities([ActiveAppSensor(coordinator.active_apps)])
 
 
 class DevModeRemainingSensor(CoordinatorEntity[HabrewCoordinator], SensorEntity):
@@ -56,4 +59,42 @@ class DevModeRemainingSensor(CoordinatorEntity[HabrewCoordinator], SensorEntity)
             "checked_at": info.checked_at if info else None,
             "last_extended": info.last_reset if info else None,
             "last_error": info.error if info else None,
+        }
+
+
+STATE_OFF = "off"
+STATE_OTHER = "other"
+
+
+class ActiveAppSensor(CoordinatorEntity[ActiveAppCoordinator], SensorEntity):
+    """Which managed app is on screen: its name, "other" (something else) or "off" (TV not answering)."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "active_app"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_icon = "mdi:application-outline"
+
+    def __init__(self, coordinator: ActiveAppCoordinator) -> None:
+        super().__init__(coordinator)
+        entry = coordinator.config_entry
+        self._attr_unique_id = f"{entry.entry_id}_active_app"
+        self._attr_device_info = tv_device_info(entry)
+        self._titles = {sid: sub.title for sid, sub in coordinator.main.app_subentries.items()}
+        self._attr_options = [STATE_OFF, STATE_OTHER, *dict.fromkeys(self._titles.values())]
+
+    @property
+    def native_value(self) -> str:
+        data = self.coordinator.data
+        if data is None or not data.reachable:
+            return STATE_OFF
+        return self._titles.get(data.visible or "", STATE_OTHER)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        running = data.running if data else []
+        visible = data.visible if data else None
+        return {
+            "running": [self._titles[s] for s in running if s in self._titles],
+            "app_id": self.coordinator.main.app_id(visible) if visible else None,
         }

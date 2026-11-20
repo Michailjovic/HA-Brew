@@ -270,11 +270,29 @@
     "sensor": {
       "devmode_remaining": {
         "name": "Developer Mode remaining"
+      },
+      "active_app": {
+        "name": "Active app",
+        "state": {
+          "off": "Off",
+          "other": "Other app"
+        },
+        "state_attributes": {
+          "running": {
+            "name": "Running"
+          },
+          "app_id": {
+            "name": "App ID"
+          }
+        }
       }
     },
     "button": {
       "devmode_extend": {
         "name": "Extend Developer Mode"
+      },
+      "launch": {
+        "name": "Launch {app}"
       }
     }
   }
