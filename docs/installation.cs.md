@@ -55,7 +55,13 @@ Potřebujete bezplatný [účet Samsung](https://account.samsung.com) s e-mailov
 1. **Nastavení → Zařízení a služby → HA-Brew** → vaše televize → **Přidat certifikát**.
 2. Vyberte **Vytvořit nový certifikát (účet Samsung)** → **Odeslat**.
 3. Jméno autora: cokoli (třeba vaše jméno). Úroveň oprávnění: **Public**. *Další televize*: jen pro televize Samsung, které v HA-Brew nejsou. **Odeslat**.
-4. Dialog ukáže příkaz. Na počítači:
+4. Po odeslání se otevře další okno se **dvěma příkazy vytvořenými jen pro vás** (Windows a macOS/Linux). Příkaz vypadá zhruba takto, ale adresa a kód jsou pokaždé jiné, takže ho vždy zkopírujte z okna v Home Assistantu:
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'http://192.168.1.2:8123/api/habrew/samsung_login/Xy12…/helper.ps1' | iex"
+   ```
+
+   Na počítači ho spusťte:
    - **Windows**: stiskněte **Win + R**, vložte příkaz, **Enter**.
    - **macOS / Linux**: vložte ho do **Terminálu**.
 5. V prohlížeči se otevře přihlášení Samsungu. Přihlaste se. Stránka pak napíše *Přihlášeno*; zavřete ji.

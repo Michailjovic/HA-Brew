@@ -55,7 +55,13 @@ You need a free [Samsung account](https://account.samsung.com) with an e-mail ad
 1. **Settings → Devices & services → HA-Brew** → your TV → **Add certificate**.
 2. Choose **Create a new certificate (Samsung account)** → **Submit**.
 3. Author name: anything (e.g. your name). Privilege level: **Public**. *Other TVs*: only for Samsung TVs that are not in HA-Brew. **Submit**.
-4. The dialog shows a command. On the computer:
+4. The next window shows **two commands made just for you** (Windows and macOS/Linux). It looks roughly like this, but the address and code are different every time, so always copy it from the window in Home Assistant:
+
+   ```
+   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'http://192.168.1.2:8123/api/habrew/samsung_login/Xy12…/helper.ps1' | iex"
+   ```
+
+   Run it on the computer:
    - **Windows**: press **Win + R**, paste the command, press **Enter**.
    - **macOS / Linux**: paste it into **Terminal**.
 5. The browser opens the Samsung sign-in page. Sign in. The page then says *Signed in*; close it.
