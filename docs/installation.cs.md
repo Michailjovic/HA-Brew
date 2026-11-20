@@ -52,20 +52,35 @@ Televize Samsung přijímají jen podepsané aplikace a **nainstalovanou aplikac
 
 Potřebujete bezplatný [účet Samsung](https://account.samsung.com) s e-mailovou adresou a počítač (Windows, macOS nebo Linux) ve stejné síti jako Home Assistant. Na počítač se nic neinstaluje.
 
+**Jak to probíhá:** začnete v Home Assistantu, ten vám vytvoří příkaz, příkaz spustíte na počítači a v prohlížeči se přihlásíte k Samsungu. Zbytek dokončí Home Assistant sám.
+
+> ⚠️ **Příkaz v tomto návodu není.** Home Assistant ho vytvoří v kroku 4. Obsahuje adresu vašeho Home Assistantu a jednorázový kód platný 15 minut.
+
+**V Home Assistantu:**
+
 1. **Nastavení → Zařízení a služby → HA-Brew** → vaše televize → **Přidat certifikát**.
 2. Vyberte **Vytvořit nový certifikát (účet Samsung)** → **Odeslat**.
-3. Jméno autora: cokoli (třeba vaše jméno). Úroveň oprávnění: **Public**. *Další televize*: jen pro televize Samsung, které v HA-Brew nejsou. **Odeslat**.
-4. Po odeslání se otevře další okno se **dvěma příkazy vytvořenými jen pro vás** (Windows a macOS/Linux). Příkaz vypadá zhruba takto, ale adresa a kód jsou pokaždé jiné, takže ho vždy zkopírujte z okna v Home Assistantu:
+3. Jméno autora: cokoli (třeba vaše jméno). Úroveň oprávnění: nechte **Public**. *Další televize* nechte prázdné. → **Odeslat**.
+4. Otevře se okno se **dvěma příkazy**: pro Windows a pro macOS/Linux. Zkopírujte ten pro svůj počítač (označit, **Ctrl + C**). **Okno nechte otevřené.**
 
-   ```
-   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'http://192.168.1.2:8123/api/habrew/samsung_login/Xy12…/helper.ps1' | iex"
-   ```
+**Na počítači** (ve stejné síti jako Home Assistant):
 
-   Na počítači ho spusťte:
-   - **Windows**: stiskněte **Win + R**, vložte příkaz, **Enter**.
-   - **macOS / Linux**: vložte ho do **Terminálu**.
-5. V prohlížeči se otevře přihlášení Samsungu. Přihlaste se. Stránka pak napíše *Přihlášeno*; zavřete ji.
-6. V Home Assistantu dialog pokračuje sám a certifikát vytvoří (pár sekund).
+5. Spusťte zkopírovaný příkaz:
+   - **Windows**: stiskněte **Win + R**, vložte (**Ctrl + V**), **Enter**. Otevře se modré okno PowerShellu. Vložit ho do už otevřeného PowerShellu jde taky.
+   - **macOS / Linux**: otevřete **Terminál**, vložte, **Enter**.
+6. V prohlížeči se otevře přihlášení Samsungu. Přihlaste se. Stránka pak napíše *Přihlášeno*; zavřete ji. Okno PowerShellu/Terminálu se zavře samo.
+
+**Zpět v Home Assistantu:**
+
+7. Okno z kroku 4 pokračuje samo a za pár sekund skončí hlášením o úspěchu. Certifikát pak uvidíte u televize na stránce integrace a v panelu v záložce **Certifikáty**.
+
+Když to trvá déle než 15 minut, okno vyprší. Začněte znovu od kroku 1, dostanete nový příkaz.
+
+Příkaz má tento tvar (váš obsahuje skutečnou adresu a kód):
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'http://<adresa-vašeho-HA>/api/habrew/samsung_login/<jednorázový-kód>/helper.ps1' | iex"
+```
 
 Certifikát platí pro všechny vaše televize Samsung v HA-Brew a je uložený jen v Home Assistantu. Další certifikáty používají stejný autorský klíč. Když je port 4794 obsazený, zavřete Tizen Studio nebo jiný nástroj na certifikáty a spusťte příkaz znovu.
 

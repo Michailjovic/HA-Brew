@@ -72,24 +72,31 @@ If it cannot connect: the TV is off, Developer Mode is off, or Host PC IP is not
 
 ### 3.3 Create a signing certificate
 
-Samsung TVs only run signed apps. HA-Brew creates the certificate for you through your Samsung account. You do this **once**.
+Samsung TVs only run signed apps. HA-Brew creates the certificate for you through your Samsung account. You do this **once**, it takes about two minutes.
+
+**Overview:** you start in Home Assistant, Home Assistant gives you a command, you run it on your computer and sign in to Samsung in the browser, and Home Assistant finishes the rest.
+
+> ⚠️ **The command is not in this guide.** Home Assistant creates it for you in step 4. It contains your Home Assistant's address and a one-time code, valid for 15 minutes.
+
+**In Home Assistant:**
 
 1. **Settings → Devices & services → HA-Brew** → your TV → **Add certificate**.
 2. Choose **Create a new certificate (Samsung account)** → **Submit**.
 3. **Author name**: anything, e.g. your name. **Privilege level**: leave **Public**. Leave *Other TVs* empty. → **Submit**.
-4. The next window shows **two commands made just for you**: one for Windows, one for macOS/Linux. Copy the one for your computer.
+4. A window with **two commands** opens: one for Windows, one for macOS/Linux. Copy the one for your computer (select it, **Ctrl + C**). **Leave this window open.**
 
-   It looks like this (your address and code will be different, so always copy it from the window, not from here):
+**On your computer** (in the same network as Home Assistant):
 
-   ```
-   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'http://192.168.1.2:8123/api/habrew/samsung_login/Xy12…/helper.ps1' | iex"
-   ```
-
-5. Run it on the computer:
-   - **Windows**: press **Win + R**, paste the command (**Ctrl + V**), press **Enter**. A blue PowerShell window opens.
-   - **macOS / Linux**: open **Terminal**, paste the command, press **Enter**.
+5. Run the copied command:
+   - **Windows**: press **Win + R**, paste (**Ctrl + V**), press **Enter**. A blue PowerShell window opens. Pasting it into an open PowerShell window works too.
+   - **macOS / Linux**: open **Terminal**, paste, press **Enter**.
 6. Your browser opens the **Samsung sign-in page**. Sign in. When the page says *Signed in*, close it. The PowerShell/Terminal window closes by itself.
-7. Go back to Home Assistant. The window there continues on its own and finishes in a few seconds: **Certificate created**.
+
+**Back in Home Assistant:**
+
+7. The window from step 4 continues on its own and after a few seconds shows **Certificate created**. Done.
+
+If you take longer than 15 minutes, the window times out. Start again at step 1 and you get a new command.
 
 The certificate works for all your Samsung TVs in HA-Brew and is valid for about a year. It is stored only in your Home Assistant.
 
@@ -99,6 +106,12 @@ The certificate works for all your Samsung TVs in HA-Brew and is valid for about
 Samsung sends the sign-in result only to `localhost:4794` on the computer where you signed in. The command downloads a small script **from your own Home Assistant** (the link works only once and only for 15 minutes). The script opens the sign-in page, waits for the result on port 4794 and passes it to Home Assistant. Nothing is installed and nothing is sent anywhere else. Home Assistant then creates the keys and asks Samsung for the certificate.
 
 If it reports that port 4794 is busy, close Tizen Studio or any other certificate tool and run the command again. If nothing happens in Home Assistant, check that the computer can open your Home Assistant at the address shown in the command.
+
+The command has this shape (yours contains a real address and code):
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm 'http://<your-home-assistant>/api/habrew/samsung_login/<one-time-code>/helper.ps1' | iex"
+```
 </details>
 
 <details>
